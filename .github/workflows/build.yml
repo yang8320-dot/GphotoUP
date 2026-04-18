@@ -21,24 +21,15 @@ jobs:
     - name: 3. 安裝依賴套件與 PyInstaller
       run: |
         python -m pip install --upgrade pip
-        # 確保安裝了所有必要的套件，包括我們新加入的 pystray, pillow, customtkinter
         pip install -r requirements.txt
         pip install pyinstaller
 
-    - name: 4. 執行 PyInstaller 打包程式 (進階修正版)
+    - name: 4. 執行 PyInstaller 打包程式 (單行指令防報錯)
       run: |
-        # 指令說明：
-        # --hidden-import: 強制包含 PyInstaller 掃描不到的 Windows 底層後端
-        # --collect-all: 完整收集 customtkinter 的主題 JSON 與圖案資源檔
-        pyinstaller --noconsole --onefile \
-          --hidden-import "keyring.backends.Windows" \
-          --hidden-import "pystray._win32" \
-          --collect-all "customtkinter" \
-          --name "GooglePhotosUploader" \
-          main.py
+        pyinstaller --noconsole --onefile --hidden-import "keyring.backends.Windows" --hidden-import "pystray._win32" --collect-all "customtkinter" --name "GooglePhotosUploader" main.py
 
     - name: 5. 上傳打包好的 .exe 供下載
       uses: actions/upload-artifact@v4
       with:
-        name: GPhotoUp
+        name: GPhotoUp-Executable
         path: dist/GooglePhotosUploader.exe
