@@ -8,13 +8,36 @@ import requests
 import sqlite3
 import time
 import keyring
+import winreg
 from cryptography.fernet import Fernet
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 import customtkinter as ctk
 
-# --- 高 DPI 與 iOS 風格設定 ---
+# --- 系統底層與常駐模組 ---
+import pystray
+from PIL import Image, ImageDraw
+import win32event
+import win32api
+import winerror
+import win32gui
+import win32con
+
+# 視窗標題名稱 (必須固定，尋找視窗時會用到)
+WINDOW_TITLE = "GPhotoUP V2 - 雙向監控續傳版"
+
+# --- 防重複開啟檢查 (Mutex) ---
+mutex = win32event.CreateMutex(None, False, "Global\\GPhotoUP_V2_SingleInstance")
+if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
+    # 如果已經開啟，找到舊視窗並把它移到最前面
+    hwnd = win32gui.FindWindow(None, WINDOW_TITLE)
+    if hwnd:
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.SetForegroundWindow(hwnd)
+    sys.exit(0) # 結束這個新的實例
+
+# --- 高 DPI 設定 ---
 try:
     from ctypes import windll
     windll.shcore.SetProcessDpiAwareness(1)
@@ -32,7 +55,13 @@ def get_base_path():
     if getattr(sys, 'frozen', False): return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
-# --- 資料庫管理類別 ---
+def create_tray_icon():
+    """用程式碼畫一個簡單的綠色圖示，不用另外準備圖片檔"""
+    img = Image.new('RGB', (64, 64), color=(52, 199, 89))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle((16, 16, 48, 48), fill=(255, 255, 255))
+    return img
+
 class DBManager:
     def __init__(self):
         self.db_path = os.path.join(get_base_path(), "sync_history.db")
@@ -58,7 +87,6 @@ class DBManager:
             conn.execute("INSERT OR REPLACE INTO uploads VALUES (?, ?, ?, ?)", 
                           (file_path, stat.st_mtime, stat.st_size, task_id))
 
-# --- 單一任務 UI 組件 ---
 class SyncTaskFrame(ctk.CTkFrame):
     def __init__(self, master, task_id, app_instance):
         super().__init__(master, corner_radius=15)
@@ -66,7 +94,6 @@ class SyncTaskFrame(ctk.CTkFrame):
         self.app = app_instance
         self.creds_path = ""
         self.target_dir = ""
-        self.running = False
 
         self.label = ctk.CTkLabel(self, text=f"任務 {task_id}", font=ctk.CTkFont(size=16, weight="bold"))
         self.label.pack(pady=5)
@@ -92,17 +119,17 @@ class SyncTaskFrame(ctk.CTkFrame):
             self.target_dir = path
             self.status_lbl.configure(text=f"已選: {os.path.basename(path)}", text_color="#007AFF")
 
-# --- 主程式 ---
 class GPhotoUPV2(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("GPhotoUP V2 - 雙向監控續傳版")
-        self.geometry("800x700")
+        self.title(WINDOW_TITLE)
+        self.geometry("800x750")
         
         self.db = DBManager()
         self.fernet = self.init_cipher()
+        self.running = False
 
-        # UI 佈局
+        # --- UI 佈局 ---
         self.grid_columnconfigure((0, 1), weight=1)
         
         self.task_a = SyncTaskFrame(self, "A", self)
@@ -111,16 +138,75 @@ class GPhotoUPV2(ctk.CTk):
         self.task_b = SyncTaskFrame(self, "B", self)
         self.task_b.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
 
+        # 開機啟動開關
+        self.autostart_var = ctk.BooleanVar(value=self.check_autostart())
+        self.switch_autostart = ctk.CTkSwitch(self, text="電腦開機時自動啟動程式", 
+                                              variable=self.autostart_var, command=self.toggle_autostart)
+        self.switch_autostart.grid(row=1, column=0, columnspan=2, pady=10)
+
         self.btn_master = ctk.CTkButton(self, text="啟動雙重監控任務", command=self.toggle_all, 
                                         height=50, font=ctk.CTkFont(size=18, weight="bold"), fg_color="#34c759")
-        self.btn_master.pack(pady=20, padx=40, fill="x")
+        self.btn_master.grid(row=2, column=0, columnspan=2, pady=10, padx=40, sticky="ew")
 
         self.log_area = ctk.CTkTextbox(self, height=250)
-        self.log_area.pack(pady=10, padx=20, fill="both")
+        self.log_area.grid(row=3, column=0, columnspan=2, pady=10, padx=20, sticky="nsew")
         self.log_area.configure(state="disabled")
 
-        self.running = False
+        # --- 系統匣與視窗事件設定 ---
+        self.protocol('WM_DELETE_WINDOW', self.hide_window) # 按右上角叉叉時，改為縮小到右下角
+        self.setup_system_tray()
 
+    # --- 開機自動啟動邏輯 (寫入 Windows 登錄檔) ---
+    def check_autostart(self):
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_READ)
+            winreg.QueryValueEx(key, "GPhotoUP")
+            winreg.CloseKey(key)
+            return True
+        except WindowsError:
+            return False
+
+    def toggle_autostart(self):
+        enable = self.autostart_var.get()
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE)
+        exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+        if enable:
+            winreg.SetValueEx(key, "GPhotoUP", 0, winreg.REG_SZ, exe_path)
+            self.log("🔧 已開啟：開機自動啟動")
+        else:
+            try: winreg.DeleteValue(key, "GPhotoUP")
+            except: pass
+            self.log("🔧 已關閉：開機自動啟動")
+        winreg.CloseKey(key)
+
+    # --- 常駐系統匣邏輯 (右下角圖示) ---
+    def setup_system_tray(self):
+        menu = pystray.Menu(
+            pystray.MenuItem('開啟控制面板', self.show_window, default=True),
+            pystray.MenuItem('完全退出程式', self.quit_program)
+        )
+        self.tray_icon = pystray.Icon("GPhotoUP", create_tray_icon(), "Google 相簿同步", menu)
+        threading.Thread(target=self.tray_icon.run, daemon=True).start()
+
+    def hide_window(self):
+        self.withdraw() # 隱藏視窗
+        if hasattr(self, 'tray_icon') and self.tray_icon:
+            self.tray_icon.notify("已縮小至右下角", "程式仍在背景監控相簿上傳")
+
+    def show_window(self, icon=None, item=None):
+        self.after(0, self._show_window)
+
+    def _show_window(self):
+        self.deiconify() # 顯示視窗
+        self.focus_force() # 強制提到最前面
+
+    def quit_program(self, icon, item):
+        self.running = False
+        self.tray_icon.stop()
+        self.destroy()
+        sys.exit(0)
+
+    # --- 加密與授權邏輯 ---
     def init_cipher(self):
         key = keyring.get_password(APP_NAME, KEY_ID)
         if not key:
@@ -137,86 +223,68 @@ class GPhotoUPV2(ctk.CTk):
         self.log_area.see("end")
         self.log_area.configure(state="disabled")
 
+    # --- 核心同步邏輯 ---
     def toggle_all(self):
         if not self.running:
             if not (self.task_a.target_dir and self.task_b.target_dir):
                 messagebox.showwarning("警告", "請確保兩個任務的資料夾都已選取")
                 return
             self.running = True
-            self.btn_master.configure(text="停止監控", fg_color="#FF3B30")
+            self.btn_master.configure(text="停止監控 (背景執行中)", fg_color="#FF3B30")
+            self.log("🚀 啟動雙重監控任務...")
             threading.Thread(target=self.main_loop, daemon=True).start()
         else:
             self.running = False
             self.btn_master.configure(text="啟動雙重監控任務", fg_color="#34c759")
+            self.log("🛑 任務已暫停")
 
     def main_loop(self):
         while self.running:
-            self.log("🔄 開始輪詢掃描...")
             for task in [self.task_a, self.task_b]:
-                if self.running:
-                    self.process_task(task)
-            self.log("💤 掃描完成，等待 60 秒後再次檢查...")
+                if self.running: self.process_task(task)
             for _ in range(60):
                 if not self.running: break
                 time.sleep(1)
 
     def process_task(self, task):
-        # 1. 驗證 (每個任務獨立 Token)
         creds = self.auth_task(task)
         if not creds: return
-        
         service = build('photoslibrary', 'v1', credentials=creds, static_discovery=False)
-        
-        # 2. 掃描
         for folder_name in os.listdir(task.target_dir):
             folder_path = os.path.join(task.target_dir, folder_name)
             if os.path.isdir(folder_path) and self.running:
-                # 建立相簿
                 album_id = self.get_or_create_album(service, folder_name)
                 if not album_id: continue
-                
                 for f in os.listdir(folder_path):
                     f_path = os.path.join(folder_path, f)
                     if f.lower().endswith(('.jpg', '.jpeg', '.png', '.heic')) and not self.db.is_uploaded(f_path, task.task_id):
-                        self.log(f"[{task.task_id}] 準備上傳: {f}")
                         token = self.upload_raw(f_path, creds.token)
-                        if token:
-                            if self.bind_to_album(service, token, album_id):
-                                self.db.mark_as_uploaded(f_path, task.task_id)
-                                self.log(f"[{task.task_id}] ✔️ 成功: {f}")
-                            else:
-                                self.log(f"[{task.task_id}] ❌ 綁定相簿失敗: {f}")
+                        if token and self.bind_to_album(service, token, album_id):
+                            self.db.mark_as_uploaded(f_path, task.task_id)
+                            self.log(f"[{task.task_id}] ✔️ 成功: {f}")
                         else:
-                            self.log(f"[{task.task_id}] ⚠️ 上傳失敗（可能是網路中斷），跳過此檔")
+                            self.log(f"[{task.task_id}] ⚠️ 失敗: {f}")
 
     def auth_task(self, task):
         token_path = os.path.join(get_base_path(), f"token_{task.task_id}.enc")
         creds = None
         if os.path.exists(token_path):
             try:
-                with open(token_path, 'rb') as f:
-                    creds = pickle.loads(self.fernet.decrypt(f.read()))
+                with open(token_path, 'rb') as f: creds = pickle.loads(self.fernet.decrypt(f.read()))
             except: pass
-
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 try: creds.refresh(Request())
                 except: creds = None
-            
             if not creds:
                 if not task.creds_path: return None
                 flow = InstalledAppFlow.from_client_secrets_file(task.creds_path, SCOPES)
                 creds = flow.run_local_server(port=0)
-            
-            with open(token_path, 'wb') as f:
-                f.write(self.fernet.encrypt(pickle.dumps(creds)))
+            with open(token_path, 'wb') as f: f.write(self.fernet.encrypt(pickle.dumps(creds)))
         return creds
 
     def get_or_create_album(self, service, title):
-        try:
-            # 簡化版：直接建立，API 會自動處理同名或重複
-            res = service.albums().create(body={'album': {'title': title}}).execute()
-            return res.get('id')
+        try: return service.albums().create(body={'album': {'title': title}}).execute().get('id')
         except: return None
 
     def upload_raw(self, path, token):
@@ -230,8 +298,7 @@ class GPhotoUPV2(ctk.CTk):
 
     def bind_to_album(self, service, upload_token, album_id):
         try:
-            body = {'newMediaItems': [{'simpleMediaItem': {'uploadToken': upload_token}}], 'albumId': album_id}
-            service.mediaItems().batchCreate(body=body).execute()
+            service.mediaItems().batchCreate(body={'newMediaItems': [{'simpleMediaItem': {'uploadToken': upload_token}}], 'albumId': album_id}).execute()
             return True
         except: return False
 
