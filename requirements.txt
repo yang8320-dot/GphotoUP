@@ -4,3 +4,5 @@ google-auth-oauthlib>=0.4.0
 requests>=2.25.0
 cryptography>=3.0.0
 keyring>=23.0.0
+pywin32>=306
+customtkinter>=5.2.0
