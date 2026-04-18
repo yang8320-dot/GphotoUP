@@ -24,7 +24,6 @@ import winerror
 import win32gui
 import win32con
 
-# 視窗標題名稱 (防重複開啟與尋找視窗使用)
 WINDOW_TITLE = "GPhotoUP Pro - 多路徑雙帳號監控版"
 
 # --- 1. 防重複開啟檢查 (Mutex) ---
@@ -42,31 +41,26 @@ try:
     windll.shcore.SetProcessDpiAwareness(1)
 except: pass
 
-# --- UI 佈景主題設定 ---
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
-# --- 核心參數設定 ---
 SCOPES = ['https://www.googleapis.com/auth/photoslibrary']
 UPLOAD_URL = 'https://photoslibrary.googleapis.com/v1/uploads'
 APP_NAME = "GPhotoUP_Pro_Secure"
 KEY_ID = "MultiTaskKey"
-# 擴充支援的圖片與影片格式
 SUPPORTED_FORMATS = ('.jpg', '.jpeg', '.png', '.heic', '.webp', '.gif', '.mp4', '.mov', '.avi')
 
 def get_base_path():
-    """取得執行檔或腳本所在的真實資料夾路徑"""
     if getattr(sys, 'frozen', False): return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
 def create_tray_icon():
-    """繪製右下角常駐系統匣的圖示"""
     img = Image.new('RGB', (64, 64), color=(52, 199, 89))
     draw = ImageDraw.Draw(img)
     draw.rectangle((16, 16, 48, 48), fill=(255, 255, 255))
     return img
 
-# --- 資料庫管理 (斷點續傳、本地去重、記憶監控路徑) ---
+# --- 資料庫管理 (加入帳號名稱記憶) ---
 class DBManager:
     def __init__(self):
         self.db_path = os.path.join(get_base_path(), "sync_history.db")
@@ -81,23 +75,36 @@ class DBManager:
             # 監控資料夾清單表
             conn.execute('''CREATE TABLE IF NOT EXISTS watch_paths 
                             (path TEXT, task_id TEXT, PRIMARY KEY(path, task_id))''')
+            # [新增] 任務名稱設定表
+            conn.execute('''CREATE TABLE IF NOT EXISTS task_settings 
+                            (task_id TEXT PRIMARY KEY, task_name TEXT)''')
 
-    # [新增] 讀取某個任務的所有監控路徑
+    # --- 任務名稱操作 ---
+    def get_task_name(self, task_id):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("SELECT task_name FROM task_settings WHERE task_id=?", (task_id,))
+            row = cursor.fetchone()
+            return row[0] if row else f"Google 帳號 {task_id}"
+
+    def set_task_name(self, task_id, task_name):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("INSERT OR REPLACE INTO task_settings (task_id, task_name) VALUES (?, ?)", (task_id, task_name))
+
+    # --- 監控路徑操作 ---
     def get_watch_paths(self, task_id):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("SELECT path FROM watch_paths WHERE task_id=?", (task_id,))
             return [row[0] for row in cursor.fetchall()]
 
-    # [新增] 新增監控路徑
     def add_watch_path(self, path, task_id):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("INSERT OR IGNORE INTO watch_paths VALUES (?, ?)", (path, task_id))
 
-    # [新增] 移除監控路徑
     def remove_watch_path(self, path, task_id):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM watch_paths WHERE path=? AND task_id=?", (path, task_id))
 
+    # --- 上傳紀錄操作 ---
     def is_uploaded(self, file_path, task_id):
         if not os.path.exists(file_path): return True
         stat = os.stat(file_path)
@@ -120,9 +127,13 @@ class TaskManagerFrame(ctk.CTkFrame):
         self.app = app_instance
         self.creds_path = ""
 
-        # UI 標題與憑證載入
-        self.label = ctk.CTkLabel(self, text=f"Google 帳號 {task_id}", font=ctk.CTkFont(size=16, weight="bold"))
-        self.label.pack(pady=5)
+        # [修改] 標題改為可自訂的輸入框
+        self.name_var = tk.StringVar(value=self.app.db.get_task_name(self.task_id))
+        self.entry_name = ctk.CTkEntry(self, textvariable=self.name_var, font=ctk.CTkFont(size=16, weight="bold"), justify="center", border_width=1, corner_radius=8, fg_color="transparent")
+        self.entry_name.pack(pady=(15, 5), padx=20, fill="x")
+        # 綁定事件：按下 Enter 或點擊其他地方時自動儲存名稱
+        self.entry_name.bind("<FocusOut>", self.save_task_name)
+        self.entry_name.bind("<Return>", self.save_task_name)
 
         self.btn_creds = ctk.CTkButton(self, text="1. 載入 API 憑證 (JSON)", command=self.load_creds, height=30)
         self.btn_creds.pack(pady=5, padx=20)
@@ -146,6 +157,20 @@ class TaskManagerFrame(ctk.CTkFrame):
 
         # 初始化時載入資料庫中的路徑
         self.refresh_list()
+
+    def save_task_name(self, event=None):
+        """儲存自訂名稱至資料庫"""
+        new_name = self.name_var.get().strip()
+        if not new_name:
+            new_name = f"Google 帳號 {self.task_id}"
+            self.name_var.set(new_name)
+        self.app.db.set_task_name(self.task_id, new_name)
+        self.app.focus_set() # 移除輸入框的游標
+
+    def get_log_name(self):
+        """供日誌呼叫取得目前的自訂名稱"""
+        name = self.name_var.get().strip()
+        return name if name else f"帳號 {self.task_id}"
 
     def load_creds(self):
         path = filedialog.askopenfilename(filetypes=[("JSON", "*.json")])
@@ -283,7 +308,7 @@ class GPhotoUPPro(ctk.CTk):
         self.log_area.see("end")
         self.log_area.configure(state="disabled")
 
-    # --- 核心同步邏輯 (支援多路徑掃描) ---
+    # --- 核心同步邏輯 ---
     def toggle_all(self):
         if not self.running:
             paths_a = self.db.get_watch_paths(self.task_a.task_id)
@@ -326,7 +351,6 @@ class GPhotoUPPro(ctk.CTk):
         for root_path in watch_paths:
             if not os.path.exists(root_path): continue
             
-            # 掃描每個監控路徑下的子資料夾 (這些子資料夾名稱會變成相簿名稱)
             for folder_name in os.listdir(root_path):
                 folder_path = os.path.join(root_path, folder_name)
                 if os.path.isdir(folder_path) and self.running:
@@ -340,12 +364,12 @@ class GPhotoUPPro(ctk.CTk):
                             
                             task.update_status(f"上傳中: {f[:15]}...", "#34c759")
                             
-                            token = self.upload_raw(f_path, creds.token, task.task_id)
+                            token = self.upload_raw(f_path, creds.token, task.get_log_name())
                             if token and self.bind_to_album(service, token, album_id):
                                 self.db.mark_as_uploaded(f_path, task.task_id)
-                                self.log(f"[{task.task_id}] ✔️ 成功: {f}")
+                                self.log(f"[{task.get_log_name()}] ✔️ 成功: {f}")
                             else:
-                                self.log(f"[{task.task_id}] ⚠️ 網路不穩，跳過: {f} (將於下次重試)")
+                                self.log(f"[{task.get_log_name()}] ⚠️ 網路不穩，跳過: {f} (將於下次重試)")
                                 
         if self.running: task.update_status("掃描監控中 (閒置待命)", "#ff9500")
 
@@ -365,7 +389,6 @@ class GPhotoUPPro(ctk.CTk):
                 flow = InstalledAppFlow.from_client_secrets_file(task.creds_path, SCOPES)
                 creds = flow.run_local_server(port=0)
             with open(token_path, 'wb') as f: f.write(self.fernet.encrypt(pickle.dumps(creds)))
-        # 授權成功後，更新 UI 狀態
         if creds and creds.valid:
             task.update_status("授權已完成", "#34c759", is_auth=True)
         return creds
@@ -374,8 +397,8 @@ class GPhotoUPPro(ctk.CTk):
         try: return service.albums().create(body={'album': {'title': title}}).execute().get('id')
         except: return None
 
-    # --- 指數退避重試機制 (解決大檔案影片上傳逾時) ---
-    def upload_raw(self, path, token, task_id, max_retries=3):
+    # --- 指數退避重試機制 ---
+    def upload_raw(self, path, token, log_name, max_retries=3):
         headers = {'Authorization': f'Bearer {token}', 'Content-type': 'application/octet-stream',
                    'X-Goog-Upload-Protocol': 'raw', 'X-Goog-File-Name': os.path.basename(path).encode('utf-8').decode('latin-1')}
         for attempt in range(max_retries):
@@ -387,7 +410,7 @@ class GPhotoUPPro(ctk.CTk):
                 pass 
             if attempt < max_retries - 1:
                 wait_time = 2 ** attempt
-                self.log(f"[{task_id}] 連線波動，{wait_time} 秒後進行第 {attempt+2} 次重試...")
+                self.log(f"[{log_name}] 連線波動，{wait_time} 秒後進行第 {attempt+2} 次重試...")
                 time.sleep(wait_time)
         return None
 
