@@ -1,7 +1,7 @@
 import os
 import sys
 import tkinter as tk
-from tkinter import filedialog, scrolledtext, messagebox
+from tkinter import filedialog, messagebox
 import threading
 import pickle
 import requests
@@ -11,6 +11,21 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 
+# 導入現代化 UI 框架
+import customtkinter as ctk
+
+# --- 解決 Windows 螢幕縮放導致的字體模糊問題 (DPI Awareness) ---
+try:
+    from ctypes import windll
+    # 告訴 Windows 這個程式支援高 DPI，不要強制點陣放大
+    windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    pass
+
+# 設定 customtkinter 的全域主題風格 (類似 iOS / macOS)
+ctk.set_appearance_mode("System")  # 跟隨系統的深色/淺色模式
+ctk.set_default_color_theme("blue") # 主要按鈕顏色
+
 # Google Photos API 設定
 SCOPES = ['https://www.googleapis.com/auth/photoslibrary']
 UPLOAD_URL = 'https://photoslibrary.googleapis.com/v1/uploads'
@@ -18,7 +33,6 @@ APP_NAME = "GooglePhotosUploader_V1"
 KEY_ID = "EncryptionKey"
 
 def get_base_path():
-    """取得執行檔或腳本所在的真實資料夾路徑"""
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
@@ -26,42 +40,59 @@ def get_base_path():
 class PhotoUploaderApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Google 相簿自動上傳器 (加密安全版)")
-        self.root.geometry("600x550")
+        self.root.title("Google 相簿自動上傳器")
+        self.root.geometry("650x600")
         
         self.target_folder = ""
         self.credentials_path = ""
         self.creds = None
         self.service = None
         
-        # 加密後的 Token 檔案路徑
         self.encrypted_token_path = os.path.join(get_base_path(), 'token.enc')
-        
-        # 初始化加密金鑰
         self.fernet = self.init_cipher()
 
-        # --- GUI 介面佈局 ---
-        self.btn_select_creds = tk.Button(root, text="1. 載入 Google API 憑證 (JSON)", command=self.select_credentials, font=("Arial", 11))
-        self.btn_select_creds.pack(pady=(15, 5))
-        self.lbl_creds = tk.Label(root, text="尚未載入憑證", fg="red")
-        self.lbl_creds.pack(pady=5)
+        # --- 建立現代化 (iOS 風格) 的 GUI 介面 ---
+        # 標題
+        self.title_label = ctk.CTkLabel(root, text="Google 相簿同步工具", font=ctk.CTkFont(size=24, weight="bold"))
+        self.title_label.pack(pady=(20, 10))
 
-        self.btn_select_folder = tk.Button(root, text="2. 選擇照片資料夾", command=self.select_folder, font=("Arial", 11), state=tk.DISABLED)
-        self.btn_select_folder.pack(pady=(15, 5))
-        self.lbl_path = tk.Label(root, text="尚未選擇資料夾", fg="blue")
-        self.lbl_path.pack(pady=5)
+        # 區塊 1: 憑證載入
+        self.frame_creds = ctk.CTkFrame(root, corner_radius=15, fg_color="transparent")
+        self.frame_creds.pack(pady=10, fill="x", padx=40)
+        
+        self.btn_select_creds = ctk.CTkButton(self.frame_creds, text="1. 載入 Google API 憑證 (JSON)", 
+                                              command=self.select_credentials, font=ctk.CTkFont(size=14),
+                                              corner_radius=8, height=40)
+        self.btn_select_creds.pack(pady=5)
+        self.lbl_creds = ctk.CTkLabel(self.frame_creds, text="尚未載入憑證", text_color="#FF3B30") # iOS 紅色
+        self.lbl_creds.pack()
 
-        self.btn_start = tk.Button(root, text="3. 開始同步上傳", command=self.start_upload_thread, font=("Arial", 12, "bold"), state=tk.DISABLED)
-        self.btn_start.pack(pady=(15, 10))
+        # 區塊 2: 資料夾選擇
+        self.frame_folder = ctk.CTkFrame(root, corner_radius=15, fg_color="transparent")
+        self.frame_folder.pack(pady=10, fill="x", padx=40)
 
-        self.log_area = scrolledtext.ScrolledText(root, width=70, height=15, state=tk.DISABLED)
+        self.btn_select_folder = ctk.CTkButton(self.frame_folder, text="2. 選擇相簿資料夾", 
+                                               command=self.select_folder, font=ctk.CTkFont(size=14),
+                                               corner_radius=8, height=40, state="disabled", fg_color="#5ac8fa") # iOS 淺藍
+        self.btn_select_folder.pack(pady=5)
+        self.lbl_path = ctk.CTkLabel(self.frame_folder, text="尚未選擇資料夾", text_color="gray")
+        self.lbl_path.pack()
+
+        # 區塊 3: 執行按鈕
+        self.btn_start = ctk.CTkButton(root, text="開始同步上傳", command=self.start_upload_thread, 
+                                       font=ctk.CTkFont(size=16, weight="bold"), corner_radius=20, 
+                                       height=50, state="disabled", fg_color="#34c759", hover_color="#32b353") # iOS 綠色
+        self.btn_start.pack(pady=(20, 10))
+
+        # 區塊 4: 日誌輸出視窗 (帶圓角與平滑滾動)
+        self.log_area = ctk.CTkTextbox(root, width=550, height=200, corner_radius=10, 
+                                       font=ctk.CTkFont(family="Consolas", size=13))
         self.log_area.pack(pady=10)
+        self.log_area.configure(state="disabled")
 
-        # 啟動時檢查是否有過去的登入紀錄
         self.check_existing_session()
 
     def init_cipher(self):
-        """從系統憑證管理員取得金鑰，若無則產生"""
         key = keyring.get_password(APP_NAME, KEY_ID)
         if not key:
             key = Fernet.generate_key().decode()
@@ -69,43 +100,40 @@ class PhotoUploaderApp:
         return Fernet(key.encode())
 
     def log(self, message):
-        """安全地在背景執行緒中更新 UI 日誌"""
         self.root.after(0, self._update_log, message)
 
     def _update_log(self, message):
-        self.log_area.config(state=tk.NORMAL)
-        self.log_area.insert(tk.END, message + "\n")
-        self.log_area.see(tk.END)
-        self.log_area.config(state=tk.DISABLED)
+        self.log_area.configure(state="normal")
+        self.log_area.insert("end", message + "\n")
+        self.log_area.see("end")
+        self.log_area.configure(state="disabled")
 
     def check_existing_session(self):
         if os.path.exists(self.encrypted_token_path):
-            self.lbl_creds.config(text="偵測到加密的授權紀錄 (token.enc)", fg="green")
-            self.btn_select_folder.config(state=tk.NORMAL)
+            self.lbl_creds.configure(text="偵測到加密的授權紀錄 (token.enc)", text_color="#34c759")
+            self.btn_select_folder.configure(state="normal", fg_color="#007AFF")
 
     def select_credentials(self):
         path = filedialog.askopenfilename(title="選擇 Google API 憑證", filetypes=[("JSON Files", "*.json")])
         if path:
             self.credentials_path = path
-            self.lbl_creds.config(text=f"已載入: {os.path.basename(path)}", fg="green")
-            self.btn_select_folder.config(state=tk.NORMAL)
+            self.lbl_creds.configure(text=f"已載入: {os.path.basename(path)}", text_color="#34c759")
+            self.btn_select_folder.configure(state="normal", fg_color="#007AFF")
 
     def select_folder(self):
         path = filedialog.askdirectory(title="選擇要上傳的根目錄")
         if path:
             self.target_folder = path
-            self.lbl_path.config(text=f"已選擇: {path}")
-            self.btn_start.config(state=tk.NORMAL)
+            self.lbl_path.configure(text=f"已選擇: {path}")
+            self.btn_start.configure(state="normal")
 
     def save_creds_encrypted(self, creds):
-        """加密並儲存 Token"""
         data = pickle.dumps(creds)
         encrypted_data = self.fernet.encrypt(data)
         with open(self.encrypted_token_path, 'wb') as f:
             f.write(encrypted_data)
 
     def load_creds_encrypted(self):
-        """解密並讀取 Token"""
         try:
             with open(self.encrypted_token_path, 'rb') as f:
                 encrypted_data = f.read()
@@ -167,15 +195,15 @@ class PhotoUploaderApp:
             self.log(f"❌ 加入相簿失敗 [{name}]: {e}")
 
     def start_upload_thread(self):
-        self.btn_select_creds.config(state=tk.DISABLED)
-        self.btn_select_folder.config(state=tk.DISABLED)
-        self.btn_start.config(state=tk.DISABLED)
+        self.btn_select_creds.configure(state="disabled")
+        self.btn_select_folder.configure(state="disabled")
+        self.btn_start.configure(state="disabled")
         threading.Thread(target=self.process, daemon=True).start()
 
     def process(self):
         if not self.authenticate(): 
-            self.btn_select_creds.config(state=tk.NORMAL)
-            self.btn_select_folder.config(state=tk.NORMAL)
+            self.btn_select_creds.configure(state="normal")
+            self.btn_select_folder.configure(state="normal")
             return
         
         self.log(f"\n--- 開始掃描: {self.target_folder} ---")
@@ -197,11 +225,12 @@ class PhotoUploaderApp:
                             self.log(f"    ✔️ 完成")
         
         self.log("\n🎉 所有資料夾處理完畢！")
-        self.btn_select_creds.config(state=tk.NORMAL)
-        self.btn_select_folder.config(state=tk.NORMAL)
-        self.btn_start.config(state=tk.NORMAL)
+        self.btn_select_creds.configure(state="normal")
+        self.btn_select_folder.configure(state="normal")
+        self.btn_start.configure(state="normal")
 
 if __name__ == "__main__":
-    root = tk.Tk()
+    # 使用 customtkinter 的主視窗
+    root = ctk.CTk()
     app = PhotoUploaderApp(root)
     root.mainloop()
