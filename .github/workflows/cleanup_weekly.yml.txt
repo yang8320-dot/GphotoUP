@@ -1,0 +1,81 @@
+name: 清理 Actios 執行檔
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch: 
+    inputs:
+      days_to_keep:
+        description: '保留天數 (輸入 0 為全清)'
+        required: true
+        default: '7'
+        type: string
+      minimum_runs:
+        description: '強制保留的最少次數 (輸入 0 為不留)'
+        required: true
+        default: '3'
+        type: string
+
+jobs:
+  cleanup-process:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write 
+      contents: read
+    steps:
+      - name: Delete old workflow runs via Official GitHub Script
+        # 使用 GitHub 官方核心套件，徹底解決找不到 Repository 的問題
+        uses: actions/github-script@v7
+        env:
+          # 接收手動輸入的變數，若為自動排程則預設 7 天與 3 次
+          DAYS: ${{ inputs.days_to_keep || '7' }}
+          MIN_RUNS: ${{ inputs.minimum_runs || '3' }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // 讀取環境變數
+            const daysToKeep = parseInt(process.env.DAYS, 10);
+            const minRuns = parseInt(process.env.MIN_RUNS, 10);
+            
+            // 計算過期時間基準點
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+            
+            const { owner, repo } = context.repo;
+            console.log(`開始獲取 ${owner}/${repo} 的執行紀錄...`);
+            
+            // 呼叫 GitHub API 獲取所有 Runs
+            const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+            
+            console.log(`總共找到 ${runs.length} 筆執行紀錄。`);
+            
+            // 確保紀錄依照時間由新到舊排序
+            runs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            
+            // 實作容錯機制：排除前 N 個強制保留的紀錄
+            const candidateRuns = runs.slice(minRuns);
+            
+            // 篩選出超過保留天數的舊紀錄
+            const runsToDelete = candidateRuns.filter(run => {
+              return new Date(run.created_at) < cutoffDate;
+            });
+            
+            console.log(`符合刪除條件的紀錄共 ${runsToDelete.length} 筆，開始清理...`);
+            
+            // 逐一發送 API 進行刪除
+            for (const run of runsToDelete) {
+              try {
+                await github.rest.actions.deleteWorkflowRun({
+                  owner,
+                  repo,
+                  run_id: run.id
+                });
+                console.log(`✅ 成功刪除紀錄 ID: ${run.id} (建立時間: ${run.created_at})`);
+              } catch (error) {
+                console.error(`❌ 刪除失敗 ID: ${run.id}, 錯誤訊息: ${error.message}`);
+              }
+            }
