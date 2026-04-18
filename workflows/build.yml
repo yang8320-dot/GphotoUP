@@ -31,5 +31,5 @@ jobs:
     - name: 5. 上傳打包好的 .exe 供下載
       uses: actions/upload-artifact@v4
       with:
-        name: Google-Photos-Uploader-EXE
+        name: GPhotoUp
         path: dist/GooglePhotosUploader.exe
