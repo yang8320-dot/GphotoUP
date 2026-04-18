@@ -24,18 +24,17 @@ import winerror
 import win32gui
 import win32con
 
-# 視窗標題名稱 (必須固定，尋找視窗時會用到)
+# 視窗標題名稱 (防重複開啟使用)
 WINDOW_TITLE = "GPhotoUP V2 - 雙向監控續傳版"
 
 # --- 防重複開啟檢查 (Mutex) ---
 mutex = win32event.CreateMutex(None, False, "Global\\GPhotoUP_V2_SingleInstance")
 if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
-    # 如果已經開啟，找到舊視窗並把它移到最前面
     hwnd = win32gui.FindWindow(None, WINDOW_TITLE)
     if hwnd:
         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
         win32gui.SetForegroundWindow(hwnd)
-    sys.exit(0) # 結束這個新的實例
+    sys.exit(0)
 
 # --- 高 DPI 設定 ---
 try:
@@ -50,13 +49,14 @@ SCOPES = ['https://www.googleapis.com/auth/photoslibrary']
 UPLOAD_URL = 'https://photoslibrary.googleapis.com/v1/uploads'
 APP_NAME = "GPhotoUP_V2_Secure"
 KEY_ID = "MultiTaskKey"
+# 優化 3: 擴充支援的檔案格式，加入常見影片檔
+SUPPORTED_FORMATS = ('.jpg', '.jpeg', '.png', '.heic', '.webp', '.gif', '.mp4', '.mov', '.avi')
 
 def get_base_path():
     if getattr(sys, 'frozen', False): return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
 def create_tray_icon():
-    """用程式碼畫一個簡單的綠色圖示，不用另外準備圖片檔"""
     img = Image.new('RGB', (64, 64), color=(52, 199, 89))
     draw = ImageDraw.Draw(img)
     draw.rectangle((16, 16, 48, 48), fill=(255, 255, 255))
@@ -119,6 +119,10 @@ class SyncTaskFrame(ctk.CTkFrame):
             self.target_dir = path
             self.status_lbl.configure(text=f"已選: {os.path.basename(path)}", text_color="#007AFF")
 
+    # 優化 4: 動態更新狀態標籤
+    def update_status(self, text, color="gray"):
+        self.app.after(0, lambda: self.status_lbl.configure(text=text, text_color=color))
+
 class GPhotoUPV2(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -138,33 +142,28 @@ class GPhotoUPV2(ctk.CTk):
         self.task_b = SyncTaskFrame(self, "B", self)
         self.task_b.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
 
-        # 開機啟動開關
         self.autostart_var = ctk.BooleanVar(value=self.check_autostart())
-        self.switch_autostart = ctk.CTkSwitch(self, text="電腦開機時自動啟動程式", 
-                                              variable=self.autostart_var, command=self.toggle_autostart)
+        self.switch_autostart = ctk.CTkSwitch(self, text="電腦開機時自動啟動程式", variable=self.autostart_var, command=self.toggle_autostart)
         self.switch_autostart.grid(row=1, column=0, columnspan=2, pady=10)
 
-        self.btn_master = ctk.CTkButton(self, text="啟動雙重監控任務", command=self.toggle_all, 
-                                        height=50, font=ctk.CTkFont(size=18, weight="bold"), fg_color="#34c759")
+        self.btn_master = ctk.CTkButton(self, text="啟動雙重監控任務", command=self.toggle_all, height=50, font=ctk.CTkFont(size=18, weight="bold"), fg_color="#34c759")
         self.btn_master.grid(row=2, column=0, columnspan=2, pady=10, padx=40, sticky="ew")
 
         self.log_area = ctk.CTkTextbox(self, height=250)
         self.log_area.grid(row=3, column=0, columnspan=2, pady=10, padx=20, sticky="nsew")
         self.log_area.configure(state="disabled")
 
-        # --- 系統匣與視窗事件設定 ---
-        self.protocol('WM_DELETE_WINDOW', self.hide_window) # 按右上角叉叉時，改為縮小到右下角
+        self.protocol('WM_DELETE_WINDOW', self.hide_window)
         self.setup_system_tray()
 
-    # --- 開機自動啟動邏輯 (寫入 Windows 登錄檔) ---
+    # --- 開機啟動與常駐邏輯 ---
     def check_autostart(self):
         try:
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_READ)
             winreg.QueryValueEx(key, "GPhotoUP")
             winreg.CloseKey(key)
             return True
-        except WindowsError:
-            return False
+        except: return False
 
     def toggle_autostart(self):
         enable = self.autostart_var.get()
@@ -179,7 +178,6 @@ class GPhotoUPV2(ctk.CTk):
             self.log("🔧 已關閉：開機自動啟動")
         winreg.CloseKey(key)
 
-    # --- 常駐系統匣邏輯 (右下角圖示) ---
     def setup_system_tray(self):
         menu = pystray.Menu(
             pystray.MenuItem('開啟控制面板', self.show_window, default=True),
@@ -189,7 +187,7 @@ class GPhotoUPV2(ctk.CTk):
         threading.Thread(target=self.tray_icon.run, daemon=True).start()
 
     def hide_window(self):
-        self.withdraw() # 隱藏視窗
+        self.withdraw()
         if hasattr(self, 'tray_icon') and self.tray_icon:
             self.tray_icon.notify("已縮小至右下角", "程式仍在背景監控相簿上傳")
 
@@ -197,8 +195,8 @@ class GPhotoUPV2(ctk.CTk):
         self.after(0, self._show_window)
 
     def _show_window(self):
-        self.deiconify() # 顯示視窗
-        self.focus_force() # 強制提到最前面
+        self.deiconify()
+        self.focus_force()
 
     def quit_program(self, icon, item):
         self.running = False
@@ -206,13 +204,24 @@ class GPhotoUPV2(ctk.CTk):
         self.destroy()
         sys.exit(0)
 
-    # --- 加密與授權邏輯 ---
+    # 優化 2: 加密金鑰 Fallback 防呆機制
     def init_cipher(self):
-        key = keyring.get_password(APP_NAME, KEY_ID)
-        if not key:
-            key = Fernet.generate_key().decode()
-            keyring.set_password(APP_NAME, KEY_ID, key)
-        return Fernet(key.encode())
+        try:
+            # 嘗試使用 Windows 內建憑證管理員
+            key = keyring.get_password(APP_NAME, KEY_ID)
+            if not key:
+                key = Fernet.generate_key().decode()
+                keyring.set_password(APP_NAME, KEY_ID, key)
+            return Fernet(key.encode())
+        except Exception as e:
+            # Fallback: 如果作業系統不支援，改用本地隱藏檔儲存金鑰
+            key_file = os.path.join(get_base_path(), ".secret.key")
+            if os.path.exists(key_file):
+                with open(key_file, "rb") as f: return Fernet(f.read())
+            else:
+                key = Fernet.generate_key()
+                with open(key_file, "wb") as f: f.write(key)
+                return Fernet(key)
 
     def log(self, msg):
         self.after(0, lambda: self._log_ui(msg))
@@ -232,17 +241,21 @@ class GPhotoUPV2(ctk.CTk):
             self.running = True
             self.btn_master.configure(text="停止監控 (背景執行中)", fg_color="#FF3B30")
             self.log("🚀 啟動雙重監控任務...")
+            self.task_a.update_status("掃描監控中", "#ff9500")
+            self.task_b.update_status("掃描監控中", "#ff9500")
             threading.Thread(target=self.main_loop, daemon=True).start()
         else:
             self.running = False
             self.btn_master.configure(text="啟動雙重監控任務", fg_color="#34c759")
+            self.task_a.update_status("已暫停", "gray")
+            self.task_b.update_status("已暫停", "gray")
             self.log("🛑 任務已暫停")
 
     def main_loop(self):
         while self.running:
             for task in [self.task_a, self.task_b]:
                 if self.running: self.process_task(task)
-            for _ in range(60):
+            for _ in range(60): # 每一分鐘循環掃描一次
                 if not self.running: break
                 time.sleep(1)
 
@@ -257,13 +270,19 @@ class GPhotoUPV2(ctk.CTk):
                 if not album_id: continue
                 for f in os.listdir(folder_path):
                     f_path = os.path.join(folder_path, f)
-                    if f.lower().endswith(('.jpg', '.jpeg', '.png', '.heic')) and not self.db.is_uploaded(f_path, task.task_id):
-                        token = self.upload_raw(f_path, creds.token)
+                    if f.lower().endswith(SUPPORTED_FORMATS) and not self.db.is_uploaded(f_path, task.task_id):
+                        if not self.running: break
+                        
+                        task.update_status(f"上傳中: {f[:15]}...", "#34c759")
+                        
+                        token = self.upload_raw(f_path, creds.token, task.task_id)
                         if token and self.bind_to_album(service, token, album_id):
                             self.db.mark_as_uploaded(f_path, task.task_id)
                             self.log(f"[{task.task_id}] ✔️ 成功: {f}")
                         else:
-                            self.log(f"[{task.task_id}] ⚠️ 失敗: {f}")
+                            self.log(f"[{task.task_id}] ⚠️ 上傳或綁定失敗: {f} (將於下次重試)")
+                            
+        if self.running: task.update_status("掃描監控中 (閒置)", "#ff9500")
 
     def auth_task(self, task):
         token_path = os.path.join(get_base_path(), f"token_{task.task_id}.enc")
@@ -287,20 +306,31 @@ class GPhotoUPV2(ctk.CTk):
         try: return service.albums().create(body={'album': {'title': title}}).execute().get('id')
         except: return None
 
-    def upload_raw(self, path, token):
+    # 優化 1: 加入錯誤重試機制 (Exponential Backoff)
+    def upload_raw(self, path, token, task_id, max_retries=3):
         headers = {'Authorization': f'Bearer {token}', 'Content-type': 'application/octet-stream',
                    'X-Goog-Upload-Protocol': 'raw', 'X-Goog-File-Name': os.path.basename(path).encode('utf-8').decode('latin-1')}
-        try:
-            with open(path, 'rb') as f:
-                r = requests.post(UPLOAD_URL, data=f.read(), headers=headers, timeout=30)
-                return r.text if r.status_code == 200 else None
-        except: return None
+        for attempt in range(max_retries):
+            try:
+                with open(path, 'rb') as f:
+                    r = requests.post(UPLOAD_URL, data=f.read(), headers=headers, timeout=60)
+                    if r.status_code == 200: return r.text
+            except Exception as e:
+                pass # 網路不穩或 Timeout，準備重試
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt # 等待 1秒, 2秒, 4秒...
+                self.log(f"[{task_id}] 連線不穩，{wait_time} 秒後進行第 {attempt+2} 次重試...")
+                time.sleep(wait_time)
+        return None
 
     def bind_to_album(self, service, upload_token, album_id):
-        try:
-            service.mediaItems().batchCreate(body={'newMediaItems': [{'simpleMediaItem': {'uploadToken': upload_token}}], 'albumId': album_id}).execute()
-            return True
-        except: return False
+        for attempt in range(2): # 綁定通常比較快，重試 2 次即可
+            try:
+                service.mediaItems().batchCreate(body={'newMediaItems': [{'simpleMediaItem': {'uploadToken': upload_token}}], 'albumId': album_id}).execute()
+                return True
+            except:
+                time.sleep(2)
+        return False
 
 if __name__ == "__main__":
     app = GPhotoUPV2()
