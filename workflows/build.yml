@@ -1,0 +1,35 @@
+name: Build Windows Executable
+
+# 觸發條件：僅允許在 GitHub 網頁上手動觸發 (已移除 push 自動觸發)
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest 
+
+    steps:
+    - name: 1. 取得最新程式碼
+      uses: actions/checkout@v4
+
+    - name: 2. 設定 Python 環境
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: 3. 安裝依賴套件與 PyInstaller
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+
+    - name: 4. 執行 PyInstaller 打包程式
+      run: |
+        pyinstaller --noconsole --onefile main.py --name "GooglePhotosUploader"
+
+    - name: 5. 上傳打包好的 .exe 供下載
+      uses: actions/upload-artifact@v4
+      with:
+        name: Google-Photos-Uploader-EXE
+        path: dist/GooglePhotosUploader.exe
