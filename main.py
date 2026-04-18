@@ -24,10 +24,10 @@ import winerror
 import win32gui
 import win32con
 
-# 視窗標題名稱 (防重複開啟使用)
+# 視窗標題名稱 (防重複開啟與尋找視窗使用)
 WINDOW_TITLE = "GPhotoUP V2 - 雙向監控續傳版"
 
-# --- 防重複開啟檢查 (Mutex) ---
+# --- 1. 防重複開啟檢查 (Mutex) ---
 mutex = win32event.CreateMutex(None, False, "Global\\GPhotoUP_V2_SingleInstance")
 if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
     hwnd = win32gui.FindWindow(None, WINDOW_TITLE)
@@ -36,32 +36,37 @@ if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
         win32gui.SetForegroundWindow(hwnd)
     sys.exit(0)
 
-# --- 高 DPI 設定 ---
+# --- 2. 高 DPI 抗模糊設定 ---
 try:
     from ctypes import windll
     windll.shcore.SetProcessDpiAwareness(1)
 except: pass
 
+# --- UI 佈景主題設定 ---
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
+# --- 核心參數設定 ---
 SCOPES = ['https://www.googleapis.com/auth/photoslibrary']
 UPLOAD_URL = 'https://photoslibrary.googleapis.com/v1/uploads'
 APP_NAME = "GPhotoUP_V2_Secure"
 KEY_ID = "MultiTaskKey"
-# 優化 3: 擴充支援的檔案格式，加入常見影片檔
+# 擴充支援的圖片與影片格式
 SUPPORTED_FORMATS = ('.jpg', '.jpeg', '.png', '.heic', '.webp', '.gif', '.mp4', '.mov', '.avi')
 
 def get_base_path():
+    """取得執行檔或腳本所在的真實資料夾路徑"""
     if getattr(sys, 'frozen', False): return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
 def create_tray_icon():
+    """繪製右下角常駐系統匣的圖示"""
     img = Image.new('RGB', (64, 64), color=(52, 199, 89))
     draw = ImageDraw.Draw(img)
     draw.rectangle((16, 16, 48, 48), fill=(255, 255, 255))
     return img
 
+# --- 資料庫管理 (斷點續傳與本地去重) ---
 class DBManager:
     def __init__(self):
         self.db_path = os.path.join(get_base_path(), "sync_history.db")
@@ -87,6 +92,7 @@ class DBManager:
             conn.execute("INSERT OR REPLACE INTO uploads VALUES (?, ?, ?, ?)", 
                           (file_path, stat.st_mtime, stat.st_size, task_id))
 
+# --- 單一任務介面卡片 ---
 class SyncTaskFrame(ctk.CTkFrame):
     def __init__(self, master, task_id, app_instance):
         super().__init__(master, corner_radius=15)
@@ -98,31 +104,31 @@ class SyncTaskFrame(ctk.CTkFrame):
         self.label = ctk.CTkLabel(self, text=f"任務 {task_id}", font=ctk.CTkFont(size=16, weight="bold"))
         self.label.pack(pady=5)
 
-        self.btn_creds = ctk.CTkButton(self, text="載入憑證 (JSON)", command=self.load_creds, height=30)
+        self.btn_creds = ctk.CTkButton(self, text="載入 API 憑證 (JSON)", command=self.load_creds, height=30)
         self.btn_creds.pack(pady=5, padx=20)
 
-        self.btn_dir = ctk.CTkButton(self, text="指定資料夾", command=self.load_dir, height=30, fg_color="#5ac8fa")
+        self.btn_dir = ctk.CTkButton(self, text="指定監控資料夾", command=self.load_dir, height=30, fg_color="#5ac8fa")
         self.btn_dir.pack(pady=5, padx=20)
 
-        self.status_lbl = ctk.CTkLabel(self, text="待命中", text_color="gray", font=ctk.CTkFont(size=12))
-        self.status_lbl.pack(pady=5)
+        self.status_lbl = ctk.CTkLabel(self, text="待命中", text_color="gray", font=ctk.CTkFont(size=13))
+        self.status_lbl.pack(pady=10)
 
     def load_creds(self):
         path = filedialog.askopenfilename(filetypes=[("JSON", "*.json")])
         if path: 
             self.creds_path = path
-            self.status_lbl.configure(text="憑證已載入", text_color="#34c759")
+            self.update_status("憑證已載入", "#34c759")
 
     def load_dir(self):
         path = filedialog.askdirectory()
         if path: 
             self.target_dir = path
-            self.status_lbl.configure(text=f"已選: {os.path.basename(path)}", text_color="#007AFF")
+            self.update_status(f"已選: {os.path.basename(path)}", "#007AFF")
 
-    # 優化 4: 動態更新狀態標籤
     def update_status(self, text, color="gray"):
         self.app.after(0, lambda: self.status_lbl.configure(text=text, text_color=color))
 
+# --- 主程式視窗 ---
 class GPhotoUPV2(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -149,10 +155,11 @@ class GPhotoUPV2(ctk.CTk):
         self.btn_master = ctk.CTkButton(self, text="啟動雙重監控任務", command=self.toggle_all, height=50, font=ctk.CTkFont(size=18, weight="bold"), fg_color="#34c759")
         self.btn_master.grid(row=2, column=0, columnspan=2, pady=10, padx=40, sticky="ew")
 
-        self.log_area = ctk.CTkTextbox(self, height=250)
+        self.log_area = ctk.CTkTextbox(self, height=250, font=ctk.CTkFont(family="Consolas", size=13))
         self.log_area.grid(row=3, column=0, columnspan=2, pady=10, padx=20, sticky="nsew")
         self.log_area.configure(state="disabled")
 
+        # 設定關閉視窗的行為與系統列
         self.protocol('WM_DELETE_WINDOW', self.hide_window)
         self.setup_system_tray()
 
@@ -204,17 +211,15 @@ class GPhotoUPV2(ctk.CTk):
         self.destroy()
         sys.exit(0)
 
-    # 優化 2: 加密金鑰 Fallback 防呆機制
+    # --- 加密金鑰 Fallback 防呆機制 ---
     def init_cipher(self):
         try:
-            # 嘗試使用 Windows 內建憑證管理員
             key = keyring.get_password(APP_NAME, KEY_ID)
             if not key:
                 key = Fernet.generate_key().decode()
                 keyring.set_password(APP_NAME, KEY_ID, key)
             return Fernet(key.encode())
-        except Exception as e:
-            # Fallback: 如果作業系統不支援，改用本地隱藏檔儲存金鑰
+        except Exception:
             key_file = os.path.join(get_base_path(), ".secret.key")
             if os.path.exists(key_file):
                 with open(key_file, "rb") as f: return Fernet(f.read())
@@ -236,13 +241,17 @@ class GPhotoUPV2(ctk.CTk):
     def toggle_all(self):
         if not self.running:
             if not (self.task_a.target_dir and self.task_b.target_dir):
-                messagebox.showwarning("警告", "請確保兩個任務的資料夾都已選取")
-                return
+                messagebox.showwarning("提示", "若只需單一任務，請只載入一個資料夾；若要雙任務請確保兩者皆設定。")
+                # 允許單任務執行，只要至少有一個資料夾即可
+                if not self.task_a.target_dir and not self.task_b.target_dir:
+                    return
             self.running = True
             self.btn_master.configure(text="停止監控 (背景執行中)", fg_color="#FF3B30")
-            self.log("🚀 啟動雙重監控任務...")
-            self.task_a.update_status("掃描監控中", "#ff9500")
-            self.task_b.update_status("掃描監控中", "#ff9500")
+            self.log("🚀 啟動監控任務...")
+            
+            if self.task_a.target_dir: self.task_a.update_status("掃描監控中", "#ff9500")
+            if self.task_b.target_dir: self.task_b.update_status("掃描監控中", "#ff9500")
+            
             threading.Thread(target=self.main_loop, daemon=True).start()
         else:
             self.running = False
@@ -254,7 +263,8 @@ class GPhotoUPV2(ctk.CTk):
     def main_loop(self):
         while self.running:
             for task in [self.task_a, self.task_b]:
-                if self.running: self.process_task(task)
+                if self.running and task.target_dir: 
+                    self.process_task(task)
             for _ in range(60): # 每一分鐘循環掃描一次
                 if not self.running: break
                 time.sleep(1)
@@ -280,9 +290,9 @@ class GPhotoUPV2(ctk.CTk):
                             self.db.mark_as_uploaded(f_path, task.task_id)
                             self.log(f"[{task.task_id}] ✔️ 成功: {f}")
                         else:
-                            self.log(f"[{task.task_id}] ⚠️ 上傳或綁定失敗: {f} (將於下次重試)")
+                            self.log(f"[{task.task_id}] ⚠️ 網路不穩，跳過: {f} (將於下次重試)")
                             
-        if self.running: task.update_status("掃描監控中 (閒置)", "#ff9500")
+        if self.running: task.update_status("掃描監控中 (閒置待命)", "#ff9500")
 
     def auth_task(self, task):
         token_path = os.path.join(get_base_path(), f"token_{task.task_id}.enc")
@@ -306,25 +316,25 @@ class GPhotoUPV2(ctk.CTk):
         try: return service.albums().create(body={'album': {'title': title}}).execute().get('id')
         except: return None
 
-    # 優化 1: 加入錯誤重試機制 (Exponential Backoff)
+    # --- 指數退避重試機制 (解決大檔案影片上傳逾時) ---
     def upload_raw(self, path, token, task_id, max_retries=3):
         headers = {'Authorization': f'Bearer {token}', 'Content-type': 'application/octet-stream',
                    'X-Goog-Upload-Protocol': 'raw', 'X-Goog-File-Name': os.path.basename(path).encode('utf-8').decode('latin-1')}
         for attempt in range(max_retries):
             try:
                 with open(path, 'rb') as f:
-                    r = requests.post(UPLOAD_URL, data=f.read(), headers=headers, timeout=60)
+                    r = requests.post(UPLOAD_URL, data=f.read(), headers=headers, timeout=120) # 影片上傳時間較長，設定 120 秒
                     if r.status_code == 200: return r.text
-            except Exception as e:
-                pass # 網路不穩或 Timeout，準備重試
+            except Exception:
+                pass 
             if attempt < max_retries - 1:
-                wait_time = 2 ** attempt # 等待 1秒, 2秒, 4秒...
-                self.log(f"[{task_id}] 連線不穩，{wait_time} 秒後進行第 {attempt+2} 次重試...")
+                wait_time = 2 ** attempt
+                self.log(f"[{task_id}] 連線波動，{wait_time} 秒後進行第 {attempt+2} 次重試...")
                 time.sleep(wait_time)
         return None
 
     def bind_to_album(self, service, upload_token, album_id):
-        for attempt in range(2): # 綁定通常比較快，重試 2 次即可
+        for attempt in range(2):
             try:
                 service.mediaItems().batchCreate(body={'newMediaItems': [{'simpleMediaItem': {'uploadToken': upload_token}}], 'albumId': album_id}).execute()
                 return True
