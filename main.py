@@ -2,7 +2,6 @@ import os
 import sys
 import time
 import threading
-import sqlite3
 import win32event, win32api, winerror, win32gui, win32con
 import customtkinter as ctk
 import pystray
@@ -37,8 +36,9 @@ class GPhotoUPPro(ctk.CTk):
         self.title(WINDOW_TITLE)
         self.geometry("950x850")
         
-        # 初始化資料庫
+        # 啟動資料庫並自動執行「幽靈紀錄瘦身清理」
         self.db = DBManager()
+        self.db.cleanup_ghost_records()
         self.running = False
 
         # --- 分頁系統 ---
@@ -65,6 +65,7 @@ class GPhotoUPPro(ctk.CTk):
 
         self.protocol('WM_DELETE_WINDOW', self.hide_window)
         self.setup_tray()
+        self.log("系統已啟動，資料庫已完成自動清理瘦身。")
 
     def log(self, msg):
         self.after(0, lambda: (self.log_area.configure(state="normal"), self.log_area.insert("end", f"[{time.strftime('%H:%M:%S')}] {msg}\n"), self.log_area.see("end"), self.log_area.configure(state="disabled")))
@@ -77,6 +78,7 @@ class GPhotoUPPro(ctk.CTk):
         else:
             self.running = False
             self.btn_master.configure(text="啟動全方位監控系統", fg_color="#34c759")
+            self.log("🛑 任務已暫停")
 
     def main_worker(self):
         while self.running:
