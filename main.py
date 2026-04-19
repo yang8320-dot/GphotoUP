@@ -36,9 +36,8 @@ class GPhotoUPPro(ctk.CTk):
         self.title(WINDOW_TITLE)
         self.geometry("950x850")
         
-        # 啟動資料庫並自動執行「幽靈紀錄瘦身清理」
+        # 啟動資料庫
         self.db = DBManager()
-        self.db.cleanup_ghost_records()
         self.running = False
 
         # --- 分頁系統 ---
@@ -65,7 +64,14 @@ class GPhotoUPPro(ctk.CTk):
 
         self.protocol('WM_DELETE_WINDOW', self.hide_window)
         self.setup_tray()
-        self.log("系統已啟動，資料庫已完成自動清理瘦身。")
+        
+        # 效能優化：啟動背景執行緒專門幫資料庫瘦身，不卡死 UI 介面
+        threading.Thread(target=self.background_cleanup, daemon=True).start()
+
+    def background_cleanup(self):
+        self.log("啟動背景資料庫瘦身與檢查，請稍候...")
+        self.db.cleanup_ghost_records()
+        self.log("資料庫瘦身完成！系統處於最佳狀態。")
 
     def log(self, msg):
         self.after(0, lambda: (self.log_area.configure(state="normal"), self.log_area.insert("end", f"[{time.strftime('%H:%M:%S')}] {msg}\n"), self.log_area.see("end"), self.log_area.configure(state="disabled")))
