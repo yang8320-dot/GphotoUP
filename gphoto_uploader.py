@@ -36,20 +36,27 @@ class DBManager:
             conn.execute('CREATE TABLE IF NOT EXISTS task_settings (task_id TEXT PRIMARY KEY, task_name TEXT)')
             conn.execute('CREATE TABLE IF NOT EXISTS sync_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT, target TEXT, bw_limit TEXT)')
 
-    # ✨ 資料庫自動瘦身機制
     def cleanup_ghost_records(self):
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute("SELECT file_path, task_id FROM uploads")
                 records = cursor.fetchall()
-                # 找出實體檔案已經不存在的紀錄
                 ghosts = [(path, tid) for path, tid in records if not os.path.exists(path)]
                 if ghosts:
                     conn.executemany("DELETE FROM uploads WHERE file_path=? AND task_id=?", ghosts)
-                    conn.execute("VACUUM") # 釋放硬碟空間
-        except Exception as e:
-            pass
+                    conn.execute("VACUUM")
+        except Exception: pass
 
+    # 高效能比對方法 (由 scandir 直接傳入 mtime 與 size)
+    def is_uploaded_fast(self, fp, mtime, size, tid):
+        with sqlite3.connect(self.db_path) as conn:
+            return conn.execute("SELECT 1 FROM uploads WHERE file_path=? AND mtime=? AND size=? AND task_id=?", (fp, mtime, size, tid)).fetchone() is not None
+
+    def mark_uploaded_fast(self, fp, mtime, size, tid):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("INSERT OR REPLACE INTO uploads VALUES (?, ?, ?, ?)", (fp, mtime, size, tid))
+
+    # 一般設定方法
     def get_task_name(self, tid):
         with sqlite3.connect(self.db_path) as conn:
             res = conn.execute("SELECT task_name FROM task_settings WHERE task_id=?", (tid,)).fetchone()
@@ -71,18 +78,7 @@ class DBManager:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM watch_paths WHERE path=? AND task_id=?", (path, tid))
 
-    def is_uploaded(self, fp, tid):
-        if not os.path.exists(fp): return True
-        s = os.stat(fp)
-        with sqlite3.connect(self.db_path) as conn:
-            return conn.execute("SELECT 1 FROM uploads WHERE file_path=? AND mtime=? AND size=? AND task_id=?", (fp, s.st_mtime, s.st_size, tid)).fetchone() is not None
-
-    def mark_uploaded(self, fp, tid):
-        s = os.stat(fp)
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("INSERT OR REPLACE INTO uploads VALUES (?, ?, ?, ?)", (fp, s.st_mtime, s.st_size, tid))
-
-    # Sync DB Methods
+    # Sync 方法
     def get_sync_tasks(self):
         with sqlite3.connect(self.db_path) as conn:
             return conn.execute("SELECT id, source, target, bw_limit FROM sync_tasks").fetchall()
@@ -95,7 +91,7 @@ class DBManager:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM sync_tasks WHERE id=?", (tid,))
 
-# --- Google 相簿 UI 與任務邏輯 ---
+# --- Google 相簿 UI 區塊 ---
 class GphotoTaskFrame(ctk.CTkFrame):
     def __init__(self, master, tid, app):
         super().__init__(master, corner_radius=15)
@@ -103,7 +99,6 @@ class GphotoTaskFrame(ctk.CTkFrame):
         self.app = app
         self.creds_path = ""
 
-        # 自訂名稱輸入
         self.name_var = tk.StringVar(value=self.app.db.get_task_name(tid))
         self.entry_name = ctk.CTkEntry(self, textvariable=self.name_var, font=ctk.CTkFont(size=16, weight="bold"), justify="center", border_width=1, corner_radius=8, fg_color="transparent")
         self.entry_name.pack(pady=(15, 5), padx=20, fill="x")
@@ -116,12 +111,10 @@ class GphotoTaskFrame(ctk.CTkFrame):
         self.status_lbl = ctk.CTkLabel(self, text="尚未載入憑證", text_color="#FF3B30", font=ctk.CTkFont(size=12))
         self.status_lbl.pack(pady=(0, 10))
 
-        # 監控資料夾列表
         ctk.CTkLabel(self, text="監控路徑清單:", font=ctk.CTkFont(size=13)).pack(anchor="w", padx=25)
         self.path_listbox = tk.Listbox(self, height=5, font=("Arial", 10))
         self.path_listbox.pack(pady=5, padx=20, fill="x")
 
-        # 列表操作按鈕
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(fill="x", padx=20, pady=5)
         ctk.CTkButton(btn_frame, text="＋ 新增", width=60, command=self.add_path, fg_color="#5ac8fa").pack(side="left", padx=5)
@@ -161,6 +154,7 @@ class GphotoTaskFrame(ctk.CTkFrame):
         self.app.after(0, lambda: (self.status_lbl if is_auth else self.sync_lbl).configure(text=text, text_color=color))
 
 
+# --- Google 相簿邏輯引擎 ---
 class GphotoComponent(ctk.CTkFrame):
     def __init__(self, master, app):
         super().__init__(master, fg_color="transparent")
@@ -185,29 +179,39 @@ class GphotoComponent(ctk.CTkFrame):
             paths = self.app.db.get_watch_paths(frame.tid)
             if paths: self.process_task(frame, paths)
 
+    # 🚀 效能升級：使用 os.scandir 高效讀取檔案系統
     def process_task(self, frame, paths):
         creds = self.auth_task(frame)
         if not creds: return
         service = build('photoslibrary', 'v1', credentials=creds, static_discovery=False)
+        
         for root_path in paths:
             if not os.path.exists(root_path): continue
-            for folder_name in os.listdir(root_path):
-                folder_path = os.path.join(root_path, folder_name)
-                if os.path.isdir(folder_path) and self.app.running:
-                    album_id = self.get_or_create_album(service, folder_name)
-                    if not album_id: continue
-                    for f in os.listdir(folder_path):
-                        f_path = os.path.join(folder_path, f)
-                        if f.lower().endswith(SUPPORTED_FORMATS) and not self.app.db.is_uploaded(f_path, frame.tid):
-                            if not self.app.running: break
-                            frame.update_status(f"上傳中: {f[:15]}...", "#34c759")
-                            token = self.upload_raw(f_path, creds.token, frame.name_var.get())
-                            if token and self.bind_to_album(service, token, album_id):
-                                self.app.db.mark_uploaded(f_path, frame.tid)
-                                self.app.log(f"[{frame.name_var.get()}] ✔️ 成功: {f}")
-                            else:
-                                self.app.log(f"[{frame.name_var.get()}] ⚠️ 網路不穩跳過: {f}")
-        if self.app.running: frame.update_status("掃描監控中", "#ff9500")
+            
+            with os.scandir(root_path) as entries:
+                for entry in entries:
+                    if entry.is_dir() and self.app.running:
+                        album_id = self.get_or_create_album(service, entry.name)
+                        if not album_id: continue
+                        
+                        # 進入子資料夾讀取照片
+                        with os.scandir(entry.path) as files:
+                            for f in files:
+                                if f.name.lower().endswith(SUPPORTED_FORMATS):
+                                    if not self.app.running: break
+                                    
+                                    # 利用 stat() 一次抓取大小和時間，不再呼叫額外的 I/O
+                                    stat = f.stat()
+                                    if not self.app.db.is_uploaded_fast(f.path, stat.st_mtime, stat.st_size, frame.tid):
+                                        frame.update_status(f"上傳中: {f.name[:15]}...", "#34c759")
+                                        token = self.upload_raw(f.path, creds.token, frame.name_var.get())
+                                        
+                                        if token and self.bind_to_album(service, token, album_id):
+                                            self.app.db.mark_uploaded_fast(f.path, stat.st_mtime, stat.st_size, frame.tid)
+                                            self.app.log(f"[{frame.name_var.get()}] ✔️ 成功: {f.name}")
+                                        else:
+                                            self.app.log(f"[{frame.name_var.get()}] ⚠️ 網路不穩跳過: {f.name}")
+        if self.app.running: frame.update_status("掃描監控中 (閒置)", "#ff9500")
 
     def auth_task(self, frame):
         token_path = os.path.join(get_base_path(), f"token_{frame.tid}.enc")
