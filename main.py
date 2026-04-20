@@ -5,7 +5,7 @@ import threading
 import win32event, win32api, winerror, win32gui, win32con
 import customtkinter as ctk
 import pystray
-from PIL import Image, ImageDraw
+from PIL import Image
 
 # 導入自定義模組
 from gphoto_uploader import GphotoComponent, DBManager
@@ -13,7 +13,7 @@ from folder_sync import SyncComponent
 
 WINDOW_TITLE = "GPhotoUP Pro - 全方位雲端管理系統"
 
-# --- 防重複開啟 ---
+# --- 防重複開啟機制 ---
 mutex = win32event.CreateMutex(None, False, "Global\\GPhotoUP_Modular_Instance")
 if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
     hwnd = win32gui.FindWindow(None, WINDOW_TITLE)
@@ -51,8 +51,10 @@ class GPhotoUPPro(ctk.CTk):
         self.sync_ui = SyncComponent(self.tab_sync, self)
         self.sync_ui.pack(fill="both", expand=True)
 
-        # 高對比深藍色啟動按鈕
-        self.btn_master = ctk.CTkButton(self, text="啟動全方位監控系統", command=self.toggle_all, height=50, font=("Arial", 18, "bold"), fg_color="#1F6AA5", text_color="#FFFFFF")
+        # 🎨 高對比深藍色按鈕
+        self.btn_master = ctk.CTkButton(self, text="啟動全方位監控系統", command=self.toggle_all, 
+                                       height=50, font=("Arial", 18, "bold"), 
+                                       fg_color="#1F6AA5", text_color="#FFFFFF")
         self.btn_master.pack(pady=10, padx=40, fill="x")
         
         self.log_area = ctk.CTkTextbox(self, height=150, font=("Consolas", 12))
@@ -62,26 +64,29 @@ class GPhotoUPPro(ctk.CTk):
         self.protocol('WM_DELETE_WINDOW', self.hide_window)
         self.setup_tray()
         
-        # 啟動背景資料庫瘦身
+        # 背景執行資料庫瘦身
         threading.Thread(target=self.background_cleanup, daemon=True).start()
 
     def background_cleanup(self):
-        self.log("啟動背景資料庫瘦身與檢查，請稍候...")
+        self.log("啟動背景資料庫瘦身與檢查...")
         self.db.cleanup_ghost_records()
-        self.log("資料庫瘦身完成！系統處於最佳狀態。")
+        self.log("資料庫瘦身完成！")
 
     def log(self, msg):
-        self.after(0, lambda: (self.log_area.configure(state="normal"), self.log_area.insert("end", f"[{time.strftime('%H:%M:%S')}] {msg}\n"), self.log_area.see("end"), self.log_area.configure(state="disabled")))
+        self.after(0, lambda: (self.log_area.configure(state="normal"), 
+                               self.log_area.insert("end", f"[{time.strftime('%H:%M:%S')}] {msg}\n"), 
+                               self.log_area.see("end"), 
+                               self.log_area.configure(state="disabled")))
 
     def toggle_all(self):
         if not self.running:
             self.running = True
-            self.btn_master.configure(text="🛑 停止系統監控", fg_color="#FF3B30", text_color="#FFFFFF")
+            self.btn_master.configure(text="🛑 停止系統監控", fg_color="#FF3B30")
             threading.Thread(target=self.main_worker, daemon=True).start()
         else:
             self.running = False
-            self.btn_master.configure(text="啟動全方位監控系統", fg_color="#1F6AA5", text_color="#FFFFFF")
-            self.log("🛑 任務已暫停")
+            self.btn_master.configure(text="啟動全方位監控系統", fg_color="#1F6AA5")
+            self.log("🛑 任務已手動暫停")
 
     def main_worker(self):
         while self.running:
@@ -92,8 +97,10 @@ class GPhotoUPPro(ctk.CTk):
                 time.sleep(1)
 
     def setup_tray(self):
-        img = Image.new('RGB', (64, 64), (52, 199, 89))
-        self.tray = pystray.Icon("GPhotoUP", img, "GPhotoUP Pro", pystray.Menu(pystray.MenuItem('顯示面板', self.show_window), pystray.MenuItem('退出', self.quit_sys)))
+        img = Image.new('RGB', (64, 64), (31, 106, 165))
+        self.tray = pystray.Icon("GPhotoUP", img, "GPhotoUP Pro", 
+                                pystray.Menu(pystray.MenuItem('顯示面板', self.show_window), 
+                                             pystray.MenuItem('退出', self.quit_sys)))
         threading.Thread(target=self.tray.run, daemon=True).start()
 
     def hide_window(self): self.withdraw()
