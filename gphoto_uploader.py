@@ -47,7 +47,7 @@ class DBManager:
                     conn.execute("VACUUM")
         except Exception: pass
 
-    # 高效能比對方法 (由 scandir 直接傳入 mtime 與 size)
+    # 高效能比對方法
     def is_uploaded_fast(self, fp, mtime, size, tid):
         with sqlite3.connect(self.db_path) as conn:
             return conn.execute("SELECT 1 FROM uploads WHERE file_path=? AND mtime=? AND size=? AND task_id=?", (fp, mtime, size, tid)).fetchone() is not None
@@ -153,7 +153,6 @@ class GphotoTaskFrame(ctk.CTkFrame):
     def update_status(self, text, color="gray", is_auth=False):
         self.app.after(0, lambda: (self.status_lbl if is_auth else self.sync_lbl).configure(text=text, text_color=color))
 
-
 # --- Google 相簿邏輯引擎 ---
 class GphotoComponent(ctk.CTkFrame):
     def __init__(self, master, app):
@@ -179,12 +178,15 @@ class GphotoComponent(ctk.CTkFrame):
             paths = self.app.db.get_watch_paths(frame.tid)
             if paths: self.process_task(frame, paths)
 
-    # 🚀 效能升級：使用 os.scandir 高效讀取檔案系統
+    # 🚀 效能升級 + 即時動態計數器
     def process_task(self, frame, paths):
         creds = self.auth_task(frame)
         if not creds: return
         service = build('photoslibrary', 'v1', credentials=creds, static_discovery=False)
         
+        scanned_count = 0
+        uploaded_count = 0
+
         for root_path in paths:
             if not os.path.exists(root_path): continue
             
@@ -194,24 +196,29 @@ class GphotoComponent(ctk.CTkFrame):
                         album_id = self.get_or_create_album(service, entry.name)
                         if not album_id: continue
                         
-                        # 進入子資料夾讀取照片
                         with os.scandir(entry.path) as files:
                             for f in files:
                                 if f.name.lower().endswith(SUPPORTED_FORMATS):
                                     if not self.app.running: break
                                     
-                                    # 利用 stat() 一次抓取大小和時間，不再呼叫額外的 I/O
+                                    scanned_count += 1
                                     stat = f.stat()
+                                    
+                                    if scanned_count % 100 == 0:
+                                        frame.update_status(f"掃描中... (已看過 {scanned_count} 個檔案)", "#ff9500")
+
                                     if not self.app.db.is_uploaded_fast(f.path, stat.st_mtime, stat.st_size, frame.tid):
-                                        frame.update_status(f"上傳中: {f.name[:15]}...", "#34c759")
-                                        token = self.upload_raw(f.path, creds.token, frame.name_var.get())
+                                        uploaded_count += 1
+                                        frame.update_status(f"上傳中 ({uploaded_count}筆): {f.name[:15]}", "#34c759")
                                         
+                                        token = self.upload_raw(f.path, creds.token, frame.name_var.get())
                                         if token and self.bind_to_album(service, token, album_id):
                                             self.app.db.mark_uploaded_fast(f.path, stat.st_mtime, stat.st_size, frame.tid)
                                             self.app.log(f"[{frame.name_var.get()}] ✔️ 成功: {f.name}")
                                         else:
                                             self.app.log(f"[{frame.name_var.get()}] ⚠️ 網路不穩跳過: {f.name}")
-        if self.app.running: frame.update_status("掃描監控中 (閒置)", "#ff9500")
+                                            
+        if self.app.running: frame.update_status(f"監控中 (總掃描: {scanned_count} | 新上傳: {uploaded_count})", "#ff9500")
 
     def auth_task(self, frame):
         token_path = os.path.join(get_base_path(), f"token_{frame.tid}.enc")
