@@ -36,7 +36,7 @@ class GPhotoUPPro(ctk.CTk):
         self.title(WINDOW_TITLE)
         self.geometry("950x850")
         
-        # 啟動資料庫
+        # 初始化資料庫
         self.db = DBManager()
         self.running = False
 
