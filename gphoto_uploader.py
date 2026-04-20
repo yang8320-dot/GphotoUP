@@ -23,7 +23,6 @@ def get_base_path():
     if getattr(sys, 'frozen', False): return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
-# --- 資料庫管理器 ---
 class DBManager:
     def __init__(self):
         self.db_path = os.path.join(get_base_path(), "system_data.db")
@@ -47,7 +46,6 @@ class DBManager:
                     conn.execute("VACUUM")
         except Exception: pass
 
-    # 高效能比對方法
     def is_uploaded_fast(self, fp, mtime, size, tid):
         with sqlite3.connect(self.db_path) as conn:
             return conn.execute("SELECT 1 FROM uploads WHERE file_path=? AND mtime=? AND size=? AND task_id=?", (fp, mtime, size, tid)).fetchone() is not None
@@ -56,7 +54,6 @@ class DBManager:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("INSERT OR REPLACE INTO uploads VALUES (?, ?, ?, ?)", (fp, mtime, size, tid))
 
-    # 一般設定方法
     def get_task_name(self, tid):
         with sqlite3.connect(self.db_path) as conn:
             res = conn.execute("SELECT task_name FROM task_settings WHERE task_id=?", (tid,)).fetchone()
@@ -78,7 +75,6 @@ class DBManager:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM watch_paths WHERE path=? AND task_id=?", (path, tid))
 
-    # Sync 方法
     def get_sync_tasks(self):
         with sqlite3.connect(self.db_path) as conn:
             return conn.execute("SELECT id, source, target, bw_limit FROM sync_tasks").fetchall()
@@ -91,13 +87,10 @@ class DBManager:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM sync_tasks WHERE id=?", (tid,))
 
-# --- Google 相簿 UI 區塊 ---
 class GphotoTaskFrame(ctk.CTkFrame):
     def __init__(self, master, tid, app):
         super().__init__(master, corner_radius=15)
-        self.tid = tid
-        self.app = app
-        self.creds_path = ""
+        self.tid, self.app, self.creds_path = tid, app, ""
 
         self.name_var = tk.StringVar(value=self.app.db.get_task_name(tid))
         self.entry_name = ctk.CTkEntry(self, textvariable=self.name_var, font=ctk.CTkFont(size=16, weight="bold"), justify="center", border_width=1, corner_radius=8, fg_color="transparent")
@@ -131,10 +124,8 @@ class GphotoTaskFrame(ctk.CTkFrame):
         self.app.focus_set()
 
     def load_creds(self):
-        path = filedialog.askopenfilename(filetypes=[("JSON", "*.json")])
-        if path: 
-            self.creds_path = path
-            self.update_status("憑證已準備就緒", "#34c759", is_auth=True)
+        p = filedialog.askopenfilename(filetypes=[("JSON", "*.json")])
+        if p: self.creds_path = p; self.update_status("憑證已準備就緒", "#34c759", is_auth=True)
 
     def refresh_list(self):
         self.path_listbox.delete(0, tk.END)
@@ -145,15 +136,12 @@ class GphotoTaskFrame(ctk.CTkFrame):
         if p: self.app.db.add_watch_path(p, self.tid); self.refresh_list()
 
     def remove_path(self):
-        selected = self.path_listbox.curselection()
-        if selected:
-            self.app.db.remove_watch_path(self.path_listbox.get(selected[0]), self.tid)
-            self.refresh_list()
+        s = self.path_listbox.curselection()
+        if s: self.app.db.remove_watch_path(self.path_listbox.get(s[0]), self.tid); self.refresh_list()
 
     def update_status(self, text, color="gray", is_auth=False):
         self.app.after(0, lambda: (self.status_lbl if is_auth else self.sync_lbl).configure(text=text, text_color=color))
 
-# --- Google 相簿邏輯引擎 ---
 class GphotoComponent(ctk.CTkFrame):
     def __init__(self, master, app):
         super().__init__(master, fg_color="transparent")
@@ -174,18 +162,16 @@ class GphotoComponent(ctk.CTkFrame):
         except: return Fernet(Fernet.generate_key())
 
     def run_tasks(self):
-        for frame in [self.frame_a, self.frame_b]:
-            paths = self.app.db.get_watch_paths(frame.tid)
-            if paths: self.process_task(frame, paths)
+        for f in [self.frame_a, self.frame_b]:
+            paths = self.app.db.get_watch_paths(f.tid)
+            if paths: self.process_task(f, paths)
 
-    # 🚀 效能升級 + 即時動態計數器
     def process_task(self, frame, paths):
         creds = self.auth_task(frame)
         if not creds: return
         service = build('photoslibrary', 'v1', credentials=creds, static_discovery=False)
         
-        scanned_count = 0
-        uploaded_count = 0
+        scanned_count, uploaded_count = 0, 0
 
         for root_path in paths:
             if not os.path.exists(root_path): continue
