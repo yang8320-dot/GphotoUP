@@ -34,14 +34,15 @@ class GPhotoUPPro(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title(WINDOW_TITLE)
-        self.geometry("950x850")
+        # 🎨 版面修正：縮減整體視窗高度，消除不必要的巨大留白
+        self.geometry("950x620") 
         
         self.db = DBManager()
         self.running = False
 
         # --- 分頁系統 ---
         self.tabview = ctk.CTkTabview(self)
-        self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
+        self.tabview.pack(fill="both", expand=True, padx=10, pady=5)
         self.tab_gphoto = self.tabview.add("GphotoUp (相簿備份)")
         self.tab_sync = self.tabview.add("Sync (資料同步)")
 
@@ -51,14 +52,15 @@ class GPhotoUPPro(ctk.CTk):
         self.sync_ui = SyncComponent(self.tab_sync, self)
         self.sync_ui.pack(fill="both", expand=True)
 
-        # 🎨 高對比深藍色按鈕
+        # 啟動按鈕
         self.btn_master = ctk.CTkButton(self, text="啟動全方位監控系統", command=self.toggle_all, 
-                                       height=50, font=("Arial", 18, "bold"), 
+                                       height=45, font=("Arial", 18, "bold"), 
                                        fg_color="#1F6AA5", text_color="#FFFFFF")
-        self.btn_master.pack(pady=10, padx=40, fill="x")
+        self.btn_master.pack(pady=5, padx=40, fill="x")
         
-        self.log_area = ctk.CTkTextbox(self, height=150, font=("Consolas", 12))
-        self.log_area.pack(pady=10, padx=20, fill="x")
+        # 🎨 版面修正：稍微縮減日誌區塊高度
+        self.log_area = ctk.CTkTextbox(self, height=100, font=("Consolas", 12))
+        self.log_area.pack(pady=(5, 10), padx=20, fill="x")
         self.log_area.configure(state="disabled")
 
         self.protocol('WM_DELETE_WINDOW', self.hide_window)
