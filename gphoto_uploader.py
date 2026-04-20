@@ -20,7 +20,6 @@ APP_NAME = "GPhotoUP_System"
 KEY_ID = "MasterKey"
 
 def get_base_path():
-    # 資料庫與 Token 應放在 .exe 所在的根目錄，而非 _internal
     if getattr(sys, 'frozen', False): return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
@@ -55,7 +54,6 @@ class DBManager:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("INSERT OR REPLACE INTO uploads VALUES (?, ?, ?, ?)", (fp, mtime, size, tid))
 
-    # --- 共用設定方法 ---
     def get_task_name(self, tid):
         with sqlite3.connect(self.db_path) as conn:
             res = conn.execute("SELECT task_name FROM task_settings WHERE task_id=?", (tid,)).fetchone()
@@ -105,7 +103,7 @@ class GphotoTaskFrame(ctk.CTkFrame):
         self.status_lbl.pack(pady=(0, 10))
 
         ctk.CTkLabel(self, text="監控路徑清單:", font=ctk.CTkFont(size=13)).pack(anchor="w", padx=25)
-        self.path_listbox = tk.Listbox(self, height=5, font=("Arial", 10), bg="#2b2b2b", fg="white", borderwidth=0)
+        self.path_listbox = tk.Listbox(self, height=4, font=("Arial", 10), bg="#2b2b2b", fg="white", borderwidth=0)
         self.path_listbox.pack(pady=5, padx=20, fill="x")
 
         btn_f = ctk.CTkFrame(self, fg_color="transparent")
