@@ -7,8 +7,16 @@ from tkinter import filedialog
 import customtkinter as ctk
 
 def get_rclone_path():
-    base = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__))
-    return os.path.join(base, 'rclone.exe')
+    # 完美支援 PyInstaller 6.0+ _internal 資料夾與本機開發環境
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(sys.executable)
+        internal_path = os.path.join(base_dir, "_internal", "rclone.exe")
+        if os.path.exists(internal_path):
+            return internal_path
+        return os.path.join(base_dir, "rclone.exe")
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base_dir, "rclone.exe")
 
 class SyncComponent(ctk.CTkFrame):
     def __init__(self, master, app):
@@ -32,7 +40,8 @@ class SyncComponent(ctk.CTkFrame):
         self.bw_entry = ctk.CTkEntry(self.top, placeholder_text="不限速請留空")
         self.bw_entry.grid(row=3, column=1, padx=10, pady=5, sticky="we")
         
-        ctk.CTkButton(self.top, text="加入同步清單", fg_color="#34c759", command=self.add_sync).grid(row=4, column=0, columnspan=2, pady=15)
+        # 高對比深藍色按鈕
+        ctk.CTkButton(self.top, text="加入同步清單", fg_color="#1F6AA5", text_color="#FFFFFF", command=self.add_sync).grid(row=4, column=0, columnspan=2, pady=15)
 
         self.list_frame = ctk.CTkFrame(self, corner_radius=15)
         self.list_frame.pack(pady=10, padx=20, fill="both", expand=True)
@@ -44,14 +53,13 @@ class SyncComponent(ctk.CTkFrame):
 
     def sel_src(self): 
         p = filedialog.askdirectory(); self.src_var.set(p if p else "未選擇來源")
-    
     def sel_tgt(self): 
         p = filedialog.askdirectory(); self.tgt_var.set(p if p else "未選擇目標")
 
     def add_sync(self):
         s, t, b = self.src_var.get(), self.tgt_var.get(), self.bw_entry.get()
         if "未選擇" in s or "未選擇" in t: return
-        self.app.db.add_sync_task(s, t, b)
+        self.app.db.add_sync_task(s, t, b.strip())
         self.render_tasks()
 
     def render_tasks(self):
@@ -71,11 +79,17 @@ class SyncComponent(ctk.CTkFrame):
             if not self.app.running: break
             self.execute_rclone(src, tgt, bw)
 
-    # 🚀 升級：使用 Popen 攔截 Rclone 即時進度
     def execute_rclone(self, src, tgt, bw):
         rclone_exe = get_rclone_path()
+        
+        if not os.path.exists(rclone_exe):
+            self.app.log(f"❌ 嚴重錯誤: 找不到同步引擎！")
+            self.app.log(f"👉 請確認 {rclone_exe} 是否存在。")
+            return
+
         cmd = [rclone_exe, "sync", src, tgt, "--ignore-existing", "--progress"]
-        if bw: cmd.extend(["--bwlimit", bw])
+        if bw and bw.strip(): 
+            cmd.extend(["--bwlimit", bw.strip()])
         
         self.app.log(f"🔄 [Sync] 開始同步: {os.path.basename(src)}")
         try:
@@ -90,19 +104,17 @@ class SyncComponent(ctk.CTkFrame):
             last_log_time = time.time()
             for line in process.stdout:
                 if not self.app.running:
-                    process.terminate() # 如果使用者按停止，強制關閉 rclone
+                    process.terminate() 
                     break
                 
-                # Rclone 的進度關鍵字是 "Transferred:"
                 if "Transferred:" in line:
                     current_time = time.time()
-                    # 每 3 秒更新一次日誌，避免文字狂洗版導致 UI 卡頓
                     if current_time - last_log_time > 3:
                         clean_line = line.strip().replace("Transferred:", "[進度]")
                         self.app.log(clean_line)
                         last_log_time = current_time
 
-            process.wait() # 等待進程完全結束
+            process.wait() 
             
             if self.app.running:
                 self.app.log(f"✅ [Sync] {os.path.basename(src)} 同步完成")
