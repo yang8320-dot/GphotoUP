@@ -29,21 +29,12 @@ jobs:
         Expand-Archive -Path "rclone.zip" -DestinationPath "rclone_temp"
         Get-ChildItem -Path "rclone_temp" -Filter "rclone.exe" -Recurse | Move-Item -Destination .
 
-    - name: 5. 執行 PyInstaller 打包 (資料夾模式)
+    - name: 5. 執行 PyInstaller 打包 (資料夾模式 - 單行防報錯)
       run: |
-        # 使用 --onedir 替代 --onefile
-        # 並將 rclone.exe 包含在資料夾中
-        pyinstaller --noconsole --onedir \
-          --add-binary "rclone.exe;." \
-          --hidden-import "keyring.backends.Windows" \
-          --hidden-import "pystray._win32" \
-          --collect-all "customtkinter" \
-          --name "GPhotoUP_System" \
-          main.py
+        pyinstaller --noconsole --onedir --add-binary "rclone.exe;." --hidden-import "keyring.backends.Windows" --hidden-import "pystray._win32" --collect-all "customtkinter" --name "GPhotoUP_System" main.py
 
     - name: 6. 壓縮打包資料夾
       run: |
-        # 為了方便下載，將 dist/GPhotoUP_System 資料夾壓縮成 ZIP
         Compress-Archive -Path dist/GPhotoUP_System -DestinationPath GPhotoUP_Pro_Package.zip
 
     - name: 7. 上傳 ZIP 供下載
