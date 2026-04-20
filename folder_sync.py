@@ -1,12 +1,12 @@
 import os
 import sys
+import time
 import subprocess
 import tkinter as tk
 from tkinter import filedialog
 import customtkinter as ctk
 
 def get_rclone_path():
-    # 資料夾模式下，rclone.exe 會在 .exe 的同一個資料夾
     base = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__))
     return os.path.join(base, 'rclone.exe')
 
@@ -15,7 +15,6 @@ class SyncComponent(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
         self.app = app
         
-        # 標題與設定區
         self.top = ctk.CTkFrame(self, corner_radius=15)
         self.top.pack(pady=10, padx=20, fill="x")
         
@@ -35,7 +34,6 @@ class SyncComponent(ctk.CTkFrame):
         
         ctk.CTkButton(self.top, text="加入同步清單", fg_color="#34c759", command=self.add_sync).grid(row=4, column=0, columnspan=2, pady=15)
 
-        # 任務清單區
         self.list_frame = ctk.CTkFrame(self, corner_radius=15)
         self.list_frame.pack(pady=10, padx=20, fill="both", expand=True)
         ctk.CTkLabel(self.list_frame, text="執行中/待命同步任務", font=("Arial", 14)).pack(pady=5)
@@ -73,15 +71,43 @@ class SyncComponent(ctk.CTkFrame):
             if not self.app.running: break
             self.execute_rclone(src, tgt, bw)
 
+    # 🚀 升級：使用 Popen 攔截 Rclone 即時進度
     def execute_rclone(self, src, tgt, bw):
         rclone_exe = get_rclone_path()
-        # Rclone 核心指令: sync 確保雙邊完全一致, ignore-existing 避免重複傳輸
         cmd = [rclone_exe, "sync", src, tgt, "--ignore-existing", "--progress"]
         if bw: cmd.extend(["--bwlimit", bw])
         
         self.app.log(f"🔄 [Sync] 開始同步: {os.path.basename(src)}")
         try:
-            subprocess.run(cmd, creationflags=subprocess.CREATE_NO_WINDOW)
-            self.app.log(f"✅ [Sync] {os.path.basename(src)} 同步完成")
+            process = subprocess.Popen(
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.STDOUT, 
+                text=True, 
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+
+            last_log_time = time.time()
+            for line in process.stdout:
+                if not self.app.running:
+                    process.terminate() # 如果使用者按停止，強制關閉 rclone
+                    break
+                
+                # Rclone 的進度關鍵字是 "Transferred:"
+                if "Transferred:" in line:
+                    current_time = time.time()
+                    # 每 3 秒更新一次日誌，避免文字狂洗版導致 UI 卡頓
+                    if current_time - last_log_time > 3:
+                        clean_line = line.strip().replace("Transferred:", "[進度]")
+                        self.app.log(clean_line)
+                        last_log_time = current_time
+
+            process.wait() # 等待進程完全結束
+            
+            if self.app.running:
+                self.app.log(f"✅ [Sync] {os.path.basename(src)} 同步完成")
+            else:
+                self.app.log(f"🛑 [Sync] {os.path.basename(src)} 同步已中斷")
+                
         except Exception as e:
             self.app.log(f"❌ Rclone 錯誤: {e}")
