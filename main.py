@@ -36,7 +36,6 @@ class GPhotoUPPro(ctk.CTk):
         self.title(WINDOW_TITLE)
         self.geometry("950x850")
         
-        # 初始化資料庫
         self.db = DBManager()
         self.running = False
 
@@ -46,16 +45,14 @@ class GPhotoUPPro(ctk.CTk):
         self.tab_gphoto = self.tabview.add("GphotoUp (相簿備份)")
         self.tab_sync = self.tabview.add("Sync (資料同步)")
 
-        # 載入 Google 相簿組件
         self.gphoto_ui = GphotoComponent(self.tab_gphoto, self)
         self.gphoto_ui.pack(fill="both", expand=True)
 
-        # 載入 Rclone 同步組件
         self.sync_ui = SyncComponent(self.tab_sync, self)
         self.sync_ui.pack(fill="both", expand=True)
 
-        # 控制台與日誌
-        self.btn_master = ctk.CTkButton(self, text="啟動全方位監控系統", command=self.toggle_all, height=50, font=("Arial", 18, "bold"), fg_color="#34c759")
+        # 高對比深藍色啟動按鈕
+        self.btn_master = ctk.CTkButton(self, text="啟動全方位監控系統", command=self.toggle_all, height=50, font=("Arial", 18, "bold"), fg_color="#1F6AA5", text_color="#FFFFFF")
         self.btn_master.pack(pady=10, padx=40, fill="x")
         
         self.log_area = ctk.CTkTextbox(self, height=150, font=("Consolas", 12))
@@ -65,7 +62,7 @@ class GPhotoUPPro(ctk.CTk):
         self.protocol('WM_DELETE_WINDOW', self.hide_window)
         self.setup_tray()
         
-        # 效能優化：啟動背景執行緒專門幫資料庫瘦身，不卡死 UI 介面
+        # 啟動背景資料庫瘦身
         threading.Thread(target=self.background_cleanup, daemon=True).start()
 
     def background_cleanup(self):
@@ -79,20 +76,17 @@ class GPhotoUPPro(ctk.CTk):
     def toggle_all(self):
         if not self.running:
             self.running = True
-            self.btn_master.configure(text="🛑 停止系統監控", fg_color="#FF3B30")
+            self.btn_master.configure(text="🛑 停止系統監控", fg_color="#FF3B30", text_color="#FFFFFF")
             threading.Thread(target=self.main_worker, daemon=True).start()
         else:
             self.running = False
-            self.btn_master.configure(text="啟動全方位監控系統", fg_color="#34c759")
+            self.btn_master.configure(text="啟動全方位監控系統", fg_color="#1F6AA5", text_color="#FFFFFF")
             self.log("🛑 任務已暫停")
 
     def main_worker(self):
         while self.running:
-            # 執行 Google 相簿備份輪詢
             self.gphoto_ui.run_tasks()
-            # 執行 Rclone 同步任務
             self.sync_ui.run_tasks()
-            
             for _ in range(60):
                 if not self.running: break
                 time.sleep(1)
