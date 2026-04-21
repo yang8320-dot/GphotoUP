@@ -8,13 +8,11 @@ import customtkinter as ctk
 import pystray
 from PIL import Image
 
-# 導入自定義模組
 from gphoto_uploader import GphotoComponent, DBManager
 from folder_sync import SyncComponent
 
 WINDOW_TITLE = "GPhotoUP Pro - 全方位雲端管理系統"
 
-# --- 防重複開啟機制 ---
 mutex = win32event.CreateMutex(None, False, "Global\\GPhotoUP_Modular_Instance")
 if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
     hwnd = win32gui.FindWindow(None, WINDOW_TITLE)
@@ -35,15 +33,16 @@ class GPhotoUPPro(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title(WINDOW_TITLE)
-        # 🎨 版面大幅縮減：改為緊湊的直立/長方形視窗
-        self.geometry("550x650") 
+        self.geometry("550x660") 
         
         self.db = DBManager()
         self.running = False
 
-        # --- 分頁系統 ---
-        self.tabview = ctk.CTkTabview(self)
+        # --- 增強字體的分頁系統 ---
+        self.tabview = ctk.CTkTabview(self, text_color=("#111111", "#EEEEEE"))
+        self.tabview._segmented_button.configure(font=("微軟正黑體", 14, "bold"))
         self.tabview.pack(fill="both", expand=True, padx=10, pady=5)
+        
         self.tab_gphoto = self.tabview.add("GphotoUp (相簿備份)")
         self.tab_sync = self.tabview.add("Sync (資料同步)")
 
@@ -53,21 +52,22 @@ class GPhotoUPPro(ctk.CTk):
         self.sync_ui = SyncComponent(self.tab_sync, self)
         self.sync_ui.pack(fill="both", expand=True)
 
-        # 啟動按鈕
+        # 🚀 優化主控按鈕：加大字體、增加陰影感與高對比
         self.btn_master = ctk.CTkButton(self, text="啟動全方位監控系統", command=self.toggle_all, 
-                                       height=45, font=("Arial", 18, "bold"), 
+                                       height=50, font=("微軟正黑體", 18, "bold"), 
+                                       corner_radius=10, border_width=2,
+                                       border_color=("#154c79", "#1F6AA5"),
                                        fg_color="#1F6AA5", text_color="#FFFFFF")
-        self.btn_master.pack(pady=5, padx=20, fill="x")
+        self.btn_master.pack(pady=10, padx=20, fill="x")
         
-        # 日誌區塊
-        self.log_area = ctk.CTkTextbox(self, height=100, font=("Consolas", 12))
-        self.log_area.pack(pady=(5, 10), padx=20, fill="x")
+        self.log_area = ctk.CTkTextbox(self, height=100, font=("Consolas", 12),
+                                       fg_color=("#FFFFFF", "#1E1E1E"), text_color=("#111111", "#EEEEEE"),
+                                       border_width=1, border_color="#CCCCCC")
+        self.log_area.pack(pady=(0, 10), padx=20, fill="x")
         self.log_area.configure(state="disabled")
 
         self.protocol('WM_DELETE_WINDOW', self.hide_window)
         self.setup_tray()
-        
-        # 背景執行資料庫瘦身
         threading.Thread(target=self.background_cleanup, daemon=True).start()
 
     def background_cleanup(self):
@@ -84,11 +84,11 @@ class GPhotoUPPro(ctk.CTk):
     def toggle_all(self):
         if not self.running:
             self.running = True
-            self.btn_master.configure(text="🛑 停止系統監控", fg_color="#FF3B30")
+            self.btn_master.configure(text="🛑 停止系統監控", fg_color="#E63946", border_color="#B71C1C")
             threading.Thread(target=self.main_worker, daemon=True).start()
         else:
             self.running = False
-            self.btn_master.configure(text="啟動全方位監控系統", fg_color="#1F6AA5")
+            self.btn_master.configure(text="啟動全方位監控系統", fg_color="#1F6AA5", border_color="#154c79")
             self.log("🛑 任務已手動暫停")
 
     def main_worker(self):
