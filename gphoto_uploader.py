@@ -35,6 +35,12 @@ class DBManager:
             conn.execute('CREATE TABLE IF NOT EXISTS watch_paths (path TEXT, task_id TEXT, PRIMARY KEY(path, task_id))')
             conn.execute('CREATE TABLE IF NOT EXISTS task_settings (task_id TEXT PRIMARY KEY, task_name TEXT)')
             conn.execute('CREATE TABLE IF NOT EXISTS sync_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT, target TEXT, bw_limit TEXT)')
+            
+            # 🚀 自動升級舊版資料庫：檢查並新增 sync_mode 欄位
+            cursor = conn.execute("PRAGMA table_info(sync_tasks)")
+            columns = [info[1] for info in cursor.fetchall()]
+            if 'sync_mode' not in columns:
+                conn.execute("ALTER TABLE sync_tasks ADD COLUMN sync_mode TEXT DEFAULT '單向同步'")
 
     def cleanup_ghost_records(self):
         try:
@@ -78,11 +84,12 @@ class DBManager:
 
     def get_sync_tasks(self):
         with sqlite3.connect(self.db_path) as conn:
-            return conn.execute("SELECT id, source, target, bw_limit FROM sync_tasks").fetchall()
+            # 加入 COALESCE 確保舊任務預設為單向同步
+            return conn.execute("SELECT id, source, target, bw_limit, COALESCE(sync_mode, '單向同步') FROM sync_tasks").fetchall()
 
-    def add_sync_task(self, src, tgt, bw):
+    def add_sync_task(self, src, tgt, bw, mode):
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("INSERT INTO sync_tasks (source, target, bw_limit) VALUES (?, ?, ?)", (src, tgt, bw))
+            conn.execute("INSERT INTO sync_tasks (source, target, bw_limit, sync_mode) VALUES (?, ?, ?, ?)", (src, tgt, bw, mode))
 
     def delete_sync_task(self, tid):
         with sqlite3.connect(self.db_path) as conn:
@@ -108,7 +115,6 @@ class GphotoTaskFrame(ctk.CTkFrame):
 
         ctk.CTkLabel(self, text="監控路徑清單:", font=("微軟正黑體", 14, "bold"), text_color=("#333333", "#CCCCCC")).pack(anchor="w", padx=25)
         
-        # 🌟 Listbox 徹底優化：高對比白底黑字、選取時反藍
         self.path_listbox = tk.Listbox(self, height=6, font=("微軟正黑體", 11), 
                                        bg="#FFFFFF", fg="#111111", borderwidth=1, relief="solid",
                                        selectbackground="#1F6AA5", selectforeground="#FFFFFF")
