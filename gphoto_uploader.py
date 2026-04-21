@@ -25,7 +25,6 @@ def get_base_path():
     return os.path.dirname(os.path.abspath(__file__))
 
 class DBManager:
-    # ... (此段與原本完全相同，省略不改) ...
     def __init__(self):
         self.db_path = os.path.join(get_base_path(), "system_data.db")
         self.init_db()
@@ -91,30 +90,36 @@ class DBManager:
 
 class GphotoTaskFrame(ctk.CTkFrame):
     def __init__(self, master, tid, app):
-        super().__init__(master, corner_radius=15)
+        super().__init__(master, corner_radius=15, fg_color="transparent")
         self.tid, self.app, self.creds_path = tid, app, ""
 
         self.name_var = tk.StringVar(value=self.app.db.get_task_name(tid))
-        self.entry_name = ctk.CTkEntry(self, textvariable=self.name_var, font=ctk.CTkFont(size=16, weight="bold"), 
-                                      justify="center", border_width=1, corner_radius=8, fg_color="transparent")
+        self.entry_name = ctk.CTkEntry(self, textvariable=self.name_var, 
+                                      font=("微軟正黑體", 18, "bold"), text_color=("#111111", "#FFFFFF"),
+                                      justify="center", border_width=2, corner_radius=8, 
+                                      fg_color=("#FFFFFF", "#2B2B2B"))
         self.entry_name.pack(pady=(15, 5), padx=20, fill="x")
         self.entry_name.bind("<FocusOut>", self.save_task_name)
 
-        ctk.CTkButton(self, text="載入 API 憑證 (JSON)", command=self.load_creds, height=30).pack(pady=5, padx=20)
-        self.status_lbl = ctk.CTkLabel(self, text="尚未載入憑證", text_color="#FF3B30", font=ctk.CTkFont(size=12))
+        ctk.CTkButton(self, text="載入 API 憑證 (JSON)", font=("微軟正黑體", 13, "bold"), 
+                      command=self.load_creds, height=35).pack(pady=5, padx=20)
+        self.status_lbl = ctk.CTkLabel(self, text="尚未載入憑證", text_color="#E63946", font=("微軟正黑體", 13, "bold"))
         self.status_lbl.pack(pady=(0, 10))
 
-        ctk.CTkLabel(self, text="監控路徑清單:", font=ctk.CTkFont(size=13)).pack(anchor="w", padx=25)
-        # 🎨 修改此處：背景改淺灰色(#E8E8E8)，文字改黑色(#000000)
-        self.path_listbox = tk.Listbox(self, height=6, font=("Arial", 11), bg="#E8E8E8", fg="#000000", borderwidth=0)
+        ctk.CTkLabel(self, text="監控路徑清單:", font=("微軟正黑體", 14, "bold"), text_color=("#333333", "#CCCCCC")).pack(anchor="w", padx=25)
+        
+        # 🌟 Listbox 徹底優化：高對比白底黑字、選取時反藍
+        self.path_listbox = tk.Listbox(self, height=6, font=("微軟正黑體", 11), 
+                                       bg="#FFFFFF", fg="#111111", borderwidth=1, relief="solid",
+                                       selectbackground="#1F6AA5", selectforeground="#FFFFFF")
         self.path_listbox.pack(pady=5, padx=20, fill="x")
 
         btn_f = ctk.CTkFrame(self, fg_color="transparent")
         btn_f.pack(fill="x", padx=20, pady=5)
-        ctk.CTkButton(btn_f, text="＋", width=40, command=self.add_path, fg_color="#1F6AA5").pack(side="left", padx=5)
-        ctk.CTkButton(btn_f, text="－", width=40, command=self.remove_path, fg_color="#FF3B30").pack(side="right", padx=5)
+        ctk.CTkButton(btn_f, text="＋ 新增路徑", font=("微軟正黑體", 13, "bold"), command=self.add_path, fg_color="#2A9D8F").pack(side="left", padx=5)
+        ctk.CTkButton(btn_f, text="－ 移除選取", font=("微軟正黑體", 13, "bold"), command=self.remove_path, fg_color="#E63946").pack(side="right", padx=5)
 
-        self.sync_lbl = ctk.CTkLabel(self, text="待命中", text_color="gray", font=ctk.CTkFont(size=13))
+        self.sync_lbl = ctk.CTkLabel(self, text="待命中", text_color=("#555555", "#AAAAAA"), font=("微軟正黑體", 14, "bold"))
         self.sync_lbl.pack(pady=10)
         self.refresh_list()
 
@@ -123,7 +128,7 @@ class GphotoTaskFrame(ctk.CTkFrame):
 
     def load_creds(self):
         p = filedialog.askopenfilename(filetypes=[("JSON", "*.json")])
-        if p: self.creds_path = p; self.update_status("憑證已備妥", "#34c759", True)
+        if p: self.creds_path = p; self.update_status("憑證已備妥", "#2A9D8F", True)
 
     def refresh_list(self):
         self.path_listbox.delete(0, tk.END)
@@ -146,8 +151,8 @@ class GphotoComponent(ctk.CTkFrame):
         self.app = app
         self.fernet = self.init_cipher()
         
-        # 🎨 版面大幅修改：改用內部 Tabview 將 A、B 帳號分頁
         self.tabview = ctk.CTkTabview(self)
+        self.tabview._segmented_button.configure(font=("微軟正黑體", 13, "bold"))
         self.tabview.pack(fill="both", expand=True, padx=5, pady=0)
         
         self.tab_a = self.tabview.add("帳號 A")
@@ -159,7 +164,6 @@ class GphotoComponent(ctk.CTkFrame):
         self.frame_b = GphotoTaskFrame(self.tab_b, "B", app)
         self.frame_b.pack(fill="both", expand=True, padx=10, pady=10)
 
-    # ... (下方處理邏輯皆相同，省略不改) ...
     def init_cipher(self):
         try:
             k = keyring.get_password(APP_NAME, KEY_ID)
@@ -190,15 +194,15 @@ class GphotoComponent(ctk.CTkFrame):
                                     if not self.app.running: break
                                     scanned += 1
                                     st = f.stat()
-                                    if scanned % 100 == 0: frame.update_status(f"掃描中 ({scanned})...", "#ff9500")
+                                    if scanned % 100 == 0: frame.update_status(f"掃描中 ({scanned})...", "#E76F51")
                                     if not self.app.db.is_uploaded_fast(f.path, st.st_mtime, st.st_size, frame.tid):
                                         uploaded += 1
-                                        frame.update_status(f"上傳中 ({uploaded}): {f.name[:10]}", "#34c759")
+                                        frame.update_status(f"上傳中 ({uploaded}): {f.name[:10]}", "#2A9D8F")
                                         tk = self.upload_raw(f.path, creds.token)
                                         if tk and self.bind(service, tk, aid):
                                             self.app.db.mark_uploaded_fast(f.path, st.st_mtime, st.st_size, frame.tid)
                                             self.app.log(f"[{frame.name_var.get()}] ✔️ {f.name}")
-        if self.app.running: frame.update_status(f"監控中 (總掃描:{scanned})", "#ff9500")
+        if self.app.running: frame.update_status(f"監控中 (總掃描:{scanned})", "#E76F51")
 
     def auth_task(self, frame):
         tp = os.path.join(get_base_path(), f"token_{frame.tid}.enc")
@@ -214,7 +218,7 @@ class GphotoComponent(ctk.CTkFrame):
                 creds = flow.run_local_server(port=0)
             else: return None
             with open(tp, 'wb') as f: f.write(self.fernet.encrypt(pickle.dumps(creds)))
-        frame.update_status("授權正常", "#34c759", True)
+        frame.update_status("授權正常", "#2A9D8F", True)
         return creds
 
     def get_aid(self, s, t):
