@@ -1,3 +1,4 @@
+# --- START OF FILE gphoto_uploader.py ---
 import os
 import sys
 import pickle
@@ -24,6 +25,7 @@ def get_base_path():
     return os.path.dirname(os.path.abspath(__file__))
 
 class DBManager:
+    # ... (此段與原本完全相同，省略不改) ...
     def __init__(self):
         self.db_path = os.path.join(get_base_path(), "system_data.db")
         self.init_db()
@@ -103,7 +105,8 @@ class GphotoTaskFrame(ctk.CTkFrame):
         self.status_lbl.pack(pady=(0, 10))
 
         ctk.CTkLabel(self, text="監控路徑清單:", font=ctk.CTkFont(size=13)).pack(anchor="w", padx=25)
-        self.path_listbox = tk.Listbox(self, height=4, font=("Arial", 10), bg="#2b2b2b", fg="white", borderwidth=0)
+        # 🎨 修改此處：背景改淺灰色(#E8E8E8)，文字改黑色(#000000)
+        self.path_listbox = tk.Listbox(self, height=6, font=("Arial", 11), bg="#E8E8E8", fg="#000000", borderwidth=0)
         self.path_listbox.pack(pady=5, padx=20, fill="x")
 
         btn_f = ctk.CTkFrame(self, fg_color="transparent")
@@ -141,13 +144,22 @@ class GphotoComponent(ctk.CTkFrame):
     def __init__(self, master, app):
         super().__init__(master, fg_color="transparent")
         self.app = app
-        self.grid_columnconfigure((0, 1), weight=1)
         self.fernet = self.init_cipher()
-        self.frame_a = GphotoTaskFrame(self, "A", app)
-        self.frame_a.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-        self.frame_b = GphotoTaskFrame(self, "B", app)
-        self.frame_b.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+        
+        # 🎨 版面大幅修改：改用內部 Tabview 將 A、B 帳號分頁
+        self.tabview = ctk.CTkTabview(self)
+        self.tabview.pack(fill="both", expand=True, padx=5, pady=0)
+        
+        self.tab_a = self.tabview.add("帳號 A")
+        self.tab_b = self.tabview.add("帳號 B")
 
+        self.frame_a = GphotoTaskFrame(self.tab_a, "A", app)
+        self.frame_a.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        self.frame_b = GphotoTaskFrame(self.tab_b, "B", app)
+        self.frame_b.pack(fill="both", expand=True, padx=10, pady=10)
+
+    # ... (下方處理邏輯皆相同，省略不改) ...
     def init_cipher(self):
         try:
             k = keyring.get_password(APP_NAME, KEY_ID)
