@@ -21,8 +21,8 @@ class SyncComponent(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
         self.app = app
         
-        # 🎨 版面大幅修改：改為 Tabview 分頁顯示
         self.tabview = ctk.CTkTabview(self)
+        self.tabview._segmented_button.configure(font=("微軟正黑體", 13, "bold"))
         self.tabview.pack(fill="both", expand=True, padx=5, pady=0)
         
         self.tab_new = self.tabview.add("新任務設定")
@@ -31,37 +31,37 @@ class SyncComponent(ctk.CTkFrame):
         # ----------------------------------------
         # 分頁 1：新任務設定區塊
         # ----------------------------------------
-        self.top = ctk.CTkFrame(self.tab_new, corner_radius=15)
-        self.top.pack(fill="both", expand=True, padx=15, pady=15)
+        self.top = ctk.CTkFrame(self.tab_new, corner_radius=15, fg_color="transparent")
+        self.top.pack(fill="both", expand=True, padx=10, pady=10)
         
-        self.top.grid_columnconfigure(1, weight=1) # 讓輸入框與文字吃滿空間
+        self.top.grid_columnconfigure(1, weight=1)
         
-        ctk.CTkLabel(self.top, text="新同步任務設定", font=("Arial", 16, "bold")).grid(row=0, column=0, columnspan=2, pady=(15, 10))
+        ctk.CTkLabel(self.top, text="新同步任務設定", font=("微軟正黑體", 18, "bold"), text_color=("#111111", "#FFFFFF")).grid(row=0, column=0, columnspan=2, pady=(15, 10))
         
         self.src_var = tk.StringVar(value="未選擇來源")
-        ctk.CTkButton(self.top, text="選擇來源", width=90, command=self.sel_src).grid(row=1, column=0, padx=15, pady=10)
-        ctk.CTkLabel(self.top, textvariable=self.src_var, justify="left", wraplength=300).grid(row=1, column=1, sticky="w", padx=(0, 15))
+        ctk.CTkButton(self.top, text="選擇來源", font=("微軟正黑體", 13, "bold"), width=100, height=35, command=self.sel_src).grid(row=1, column=0, padx=15, pady=10)
+        ctk.CTkLabel(self.top, textvariable=self.src_var, font=("微軟正黑體", 13), text_color=("#333333", "#CCCCCC"), justify="left", wraplength=300).grid(row=1, column=1, sticky="w", padx=(0, 15))
         
         self.tgt_var = tk.StringVar(value="未選擇目標")
-        ctk.CTkButton(self.top, text="選擇目標", width=90, command=self.sel_tgt).grid(row=2, column=0, padx=15, pady=10)
-        ctk.CTkLabel(self.top, textvariable=self.tgt_var, justify="left", wraplength=300).grid(row=2, column=1, sticky="w", padx=(0, 15))
+        ctk.CTkButton(self.top, text="選擇目標", font=("微軟正黑體", 13, "bold"), width=100, height=35, command=self.sel_tgt).grid(row=2, column=0, padx=15, pady=10)
+        ctk.CTkLabel(self.top, textvariable=self.tgt_var, font=("微軟正黑體", 13), text_color=("#333333", "#CCCCCC"), justify="left", wraplength=300).grid(row=2, column=1, sticky="w", padx=(0, 15))
         
-        ctk.CTkLabel(self.top, text="頻寬限制\n(留空不限速):", justify="right").grid(row=3, column=0, padx=15, pady=10)
-        self.bw_entry = ctk.CTkEntry(self.top, placeholder_text="如 500K 或 10M", width=150)
+        ctk.CTkLabel(self.top, text="頻寬限制\n(留空不限速):", font=("微軟正黑體", 13, "bold"), text_color=("#333333", "#CCCCCC"), justify="right").grid(row=3, column=0, padx=15, pady=10)
+        self.bw_entry = ctk.CTkEntry(self.top, placeholder_text="如 500K 或 10M", font=("微軟正黑體", 13), width=150)
         self.bw_entry.grid(row=3, column=1, padx=(0, 15), pady=10, sticky="w")
         
-        ctk.CTkButton(self.top, text="加入同步清單", fg_color="#1F6AA5", text_color="#FFFFFF", command=self.add_sync).grid(row=4, column=0, columnspan=2, pady=(20, 10))
+        ctk.CTkButton(self.top, text="加入同步清單", font=("微軟正黑體", 14, "bold"), height=40, fg_color="#2A9D8F", text_color="#FFFFFF", command=self.add_sync).grid(row=4, column=0, columnspan=2, pady=(25, 10))
 
         # ----------------------------------------
         # 分頁 2：任務清單區塊
         # ----------------------------------------
-        self.list_frame = ctk.CTkFrame(self.tab_list, corner_radius=15)
-        self.list_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        self.list_frame = ctk.CTkFrame(self.tab_list, corner_radius=15, fg_color="transparent")
+        self.list_frame.pack(fill="both", expand=True, padx=5, pady=5)
         
-        ctk.CTkLabel(self.list_frame, text="執行中 / 待命同步任務", font=("Arial", 16, "bold")).pack(pady=(15, 5))
+        ctk.CTkLabel(self.list_frame, text="執行中 / 待命同步任務", font=("微軟正黑體", 16, "bold"), text_color=("#111111", "#FFFFFF")).pack(pady=(10, 5))
         
-        self.scroll = ctk.CTkScrollableFrame(self.list_frame, corner_radius=10)
-        self.scroll.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        self.scroll = ctk.CTkScrollableFrame(self.list_frame, corner_radius=10, fg_color=("#F0F0F0", "#212121"))
+        self.scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self.render_tasks()
 
     def sel_src(self): 
@@ -74,18 +74,18 @@ class SyncComponent(ctk.CTkFrame):
         if "未選擇" in s or "未選擇" in t: return
         self.app.db.add_sync_task(s, t, b.strip())
         self.render_tasks()
-        
-        # 💡 新增功能：加完清單後自動跳轉到「任務清單」分頁給使用者看
         self.tabview.set("任務清單")
 
     def render_tasks(self):
         for w in self.scroll.winfo_children(): w.destroy()
         for tid, s, t, b in self.app.db.get_sync_tasks():
-            f = ctk.CTkFrame(self.scroll)
+            # 🌟 獨立任務卡片，加上白底(淺色)/深灰底(深色)，產生立體感
+            f = ctk.CTkFrame(self.scroll, fg_color=("#FFFFFF", "#2B2B2B"), corner_radius=8, border_width=1, border_color="#CCCCCC")
             f.pack(fill="x", pady=5, padx=5)
-            # 因為現在只有單欄，可以顯示稍微長一點的路徑
-            ctk.CTkLabel(f, text=f"從: {s}\n到: {t}\n限速: {b if b else '無'}", font=("Arial", 11), justify="left", wraplength=350).pack(side="left", padx=10, pady=5)
-            ctk.CTkButton(f, text="刪除", width=50, fg_color="#FF3B30", command=lambda x=tid: self.del_task(x)).pack(side="right", padx=10)
+            
+            info_text = f"從: {s}\n到: {t}\n限速: {b if b else '無'}"
+            ctk.CTkLabel(f, text=info_text, font=("微軟正黑體", 12, "bold"), text_color=("#111111", "#EEEEEE"), justify="left", wraplength=330).pack(side="left", padx=15, pady=10)
+            ctk.CTkButton(f, text="刪除", font=("微軟正黑體", 12, "bold"), width=60, height=30, fg_color="#E63946", command=lambda x=tid: self.del_task(x)).pack(side="right", padx=15)
 
     def del_task(self, tid): self.app.db.delete_sync_task(tid); self.render_tasks()
 
