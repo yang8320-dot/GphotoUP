@@ -1,3 +1,4 @@
+# --- START OF FILE main.py ---
 import os
 import sys
 import time
@@ -34,8 +35,8 @@ class GPhotoUPPro(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title(WINDOW_TITLE)
-        # 🎨 版面修正：縮減整體視窗高度，消除不必要的巨大留白
-        self.geometry("950x620") 
+        # 🎨 版面大幅縮減：改為緊湊的直立/長方形視窗
+        self.geometry("550x650") 
         
         self.db = DBManager()
         self.running = False
@@ -56,9 +57,9 @@ class GPhotoUPPro(ctk.CTk):
         self.btn_master = ctk.CTkButton(self, text="啟動全方位監控系統", command=self.toggle_all, 
                                        height=45, font=("Arial", 18, "bold"), 
                                        fg_color="#1F6AA5", text_color="#FFFFFF")
-        self.btn_master.pack(pady=5, padx=40, fill="x")
+        self.btn_master.pack(pady=5, padx=20, fill="x")
         
-        # 🎨 版面修正：稍微縮減日誌區塊高度
+        # 日誌區塊
         self.log_area = ctk.CTkTextbox(self, height=100, font=("Consolas", 12))
         self.log_area.pack(pady=(5, 10), padx=20, fill="x")
         self.log_area.configure(state="disabled")
