@@ -1,3 +1,4 @@
+# --- START OF FILE folder_sync.py ---
 import os
 import sys
 import time
@@ -20,39 +21,42 @@ class SyncComponent(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
         self.app = app
         
-        # 🎨 版面大改造：分為左右兩欄 (Grid Layout)
-        self.grid_columnconfigure(0, weight=4) # 左側佔 4 份寬度
-        self.grid_columnconfigure(1, weight=5) # 右側佔 5 份寬度
-        self.grid_rowconfigure(0, weight=1)
+        # 🎨 版面大幅修改：改為 Tabview 分頁顯示
+        self.tabview = ctk.CTkTabview(self)
+        self.tabview.pack(fill="both", expand=True, padx=5, pady=0)
+        
+        self.tab_new = self.tabview.add("新任務設定")
+        self.tab_list = self.tabview.add("任務清單")
 
         # ----------------------------------------
-        # 左側：新任務設定區塊
+        # 分頁 1：新任務設定區塊
         # ----------------------------------------
-        self.top = ctk.CTkFrame(self, corner_radius=15)
-        self.top.grid(row=0, column=0, padx=(10, 5), pady=10, sticky="nsew")
+        self.top = ctk.CTkFrame(self.tab_new, corner_radius=15)
+        self.top.pack(fill="both", expand=True, padx=15, pady=15)
+        
+        self.top.grid_columnconfigure(1, weight=1) # 讓輸入框與文字吃滿空間
         
         ctk.CTkLabel(self.top, text="新同步任務設定", font=("Arial", 16, "bold")).grid(row=0, column=0, columnspan=2, pady=(15, 10))
         
         self.src_var = tk.StringVar(value="未選擇來源")
-        ctk.CTkButton(self.top, text="選擇來源", width=80, command=self.sel_src).grid(row=1, column=0, padx=10, pady=10)
-        # 加入 wraplength 防止路徑太長撐破版面
-        ctk.CTkLabel(self.top, textvariable=self.src_var, justify="left", wraplength=200).grid(row=1, column=1, sticky="w", padx=(0, 10))
+        ctk.CTkButton(self.top, text="選擇來源", width=90, command=self.sel_src).grid(row=1, column=0, padx=15, pady=10)
+        ctk.CTkLabel(self.top, textvariable=self.src_var, justify="left", wraplength=300).grid(row=1, column=1, sticky="w", padx=(0, 15))
         
         self.tgt_var = tk.StringVar(value="未選擇目標")
-        ctk.CTkButton(self.top, text="選擇目標", width=80, command=self.sel_tgt).grid(row=2, column=0, padx=10, pady=10)
-        ctk.CTkLabel(self.top, textvariable=self.tgt_var, justify="left", wraplength=200).grid(row=2, column=1, sticky="w", padx=(0, 10))
+        ctk.CTkButton(self.top, text="選擇目標", width=90, command=self.sel_tgt).grid(row=2, column=0, padx=15, pady=10)
+        ctk.CTkLabel(self.top, textvariable=self.tgt_var, justify="left", wraplength=300).grid(row=2, column=1, sticky="w", padx=(0, 15))
         
-        ctk.CTkLabel(self.top, text="頻寬限制\n(留空不限速):", justify="right").grid(row=3, column=0, padx=10, pady=10)
+        ctk.CTkLabel(self.top, text="頻寬限制\n(留空不限速):", justify="right").grid(row=3, column=0, padx=15, pady=10)
         self.bw_entry = ctk.CTkEntry(self.top, placeholder_text="如 500K 或 10M", width=150)
-        self.bw_entry.grid(row=3, column=1, padx=10, pady=10, sticky="w")
+        self.bw_entry.grid(row=3, column=1, padx=(0, 15), pady=10, sticky="w")
         
         ctk.CTkButton(self.top, text="加入同步清單", fg_color="#1F6AA5", text_color="#FFFFFF", command=self.add_sync).grid(row=4, column=0, columnspan=2, pady=(20, 10))
 
         # ----------------------------------------
-        # 右側：任務清單區塊
+        # 分頁 2：任務清單區塊
         # ----------------------------------------
-        self.list_frame = ctk.CTkFrame(self, corner_radius=15)
-        self.list_frame.grid(row=0, column=1, padx=(5, 10), pady=10, sticky="nsew")
+        self.list_frame = ctk.CTkFrame(self.tab_list, corner_radius=15)
+        self.list_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
         ctk.CTkLabel(self.list_frame, text="執行中 / 待命同步任務", font=("Arial", 16, "bold")).pack(pady=(15, 5))
         
@@ -70,15 +74,18 @@ class SyncComponent(ctk.CTkFrame):
         if "未選擇" in s or "未選擇" in t: return
         self.app.db.add_sync_task(s, t, b.strip())
         self.render_tasks()
+        
+        # 💡 新增功能：加完清單後自動跳轉到「任務清單」分頁給使用者看
+        self.tabview.set("任務清單")
 
     def render_tasks(self):
         for w in self.scroll.winfo_children(): w.destroy()
         for tid, s, t, b in self.app.db.get_sync_tasks():
             f = ctk.CTkFrame(self.scroll)
-            f.pack(fill="x", pady=2, padx=5)
-            # 簡化顯示文字，避免右側太擁擠
-            ctk.CTkLabel(f, text=f"從: {os.path.basename(s)}\n到: {os.path.basename(t)}\n限速: {b if b else '無'}", font=("Arial", 11), justify="left").pack(side="left", padx=10, pady=5)
-            ctk.CTkButton(f, text="刪除", width=50, fg_color="#FF3B30", command=lambda x=tid: self.del_task(x)).pack(side="right", padx=5)
+            f.pack(fill="x", pady=5, padx=5)
+            # 因為現在只有單欄，可以顯示稍微長一點的路徑
+            ctk.CTkLabel(f, text=f"從: {s}\n到: {t}\n限速: {b if b else '無'}", font=("Arial", 11), justify="left", wraplength=350).pack(side="left", padx=10, pady=5)
+            ctk.CTkButton(f, text="刪除", width=50, fg_color="#FF3B30", command=lambda x=tid: self.del_task(x)).pack(side="right", padx=10)
 
     def del_task(self, tid): self.app.db.delete_sync_task(tid); self.render_tasks()
 
