@@ -1,4 +1,4 @@
-# --- START OF FILE gphoto_uploader.py ---
+# --- START OF FILE gphoto_uploader.py ----
 import os
 import sys
 import pickle
