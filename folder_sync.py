@@ -1,4 +1,4 @@
-# --- START OF FILE folder_sync.py ---
+# ---- START OF FILE folder_sync.py ---
 import os
 import sys
 import time
